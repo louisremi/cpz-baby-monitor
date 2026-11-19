@@ -1,0 +1,68 @@
+# cpz-baby-monitor (BabyMon)
+
+A baby monitor for two M5Stack **CardputerZero** devices fitted with the **Cap LoRa-1262**. It needs no Wi-Fi or phone.
+
+- **Pairing:** one device shows a 6-digit code and you type it on the other. A CPace-style PAKE on ristretto255 (libsodium) turns the code into a shared link key, so the code cannot be brute-forced offline from captured radio traffic.
+- **Roles:** choose *Baby* or *Parent* on either device and the other one switches to the opposite role.
+- **Audio:** the Baby unit compresses sound with **Codec2 1600** (8 kHz) and sends it encrypted (ChaCha20-Poly1305) over LoRa while it hears something (VOX gate). The Parent unit plays it and draws a scrolling waveform.
+- **Link loss:** the Parent shows *LINK LOST* after 10 s without a packet. The Baby sends a heartbeat every 2 s while quiet.
+
+## Radio
+
+US915 at 915.0 MHz, BW 500 kHz, SF9, CR 4/5, +22 dBm. FCC 15.247 treats 500 kHz LoRa as wideband, so there is no dwell-time limit. One audio packet holds 8 frames (320 ms of audio) in 91 bytes and takes 123 ms on air, which keeps the channel busy about 38% of the time. Profiles are defined in `src/radio/radio_config.hpp`; `kProfileSf7` has shorter range and airtime.
+
+## Keys
+
+| Screen | 4 | 5 | 6 | 7 | 8 / ESC |
+| --- | --- | --- | --- | --- | --- |
+| Home, unpaired | Show code | Enter code | | | Quit |
+| Home, paired | Baby | Parent | | | Unpair (ESC quits) |
+| Baby | VOX −3 dB | VOX +3 dB | Always stream | | Home |
+| Parent | | | | Mute | Home |
+
+Code entry: F/X picks a device, 0–9 types the code, OK pairs, ESC goes back. System volume works as usual: fn+S / fn+D.
+
+## Build
+
+Builds run in a Debian trixie container that matches the device OS: arm64 cross toolchain, plus multiarch `libcodec2-dev` and `libsodium-dev`.
+
+```bash
+scripts/fetch_deps.sh                 # pinned lvgl, RadioLib, pigweed, spdlog, miniaudio
+scripts/remote_build.sh test          # host unit tests (ctest)
+scripts/remote_build.sh all           # tests + arm64 binary + dist/*.deb
+scripts/deploy.sh 100.104.185.112 100.100.188.11
+```
+
+`remote_build.sh` rsyncs the source to the Docker host (`CPZBM_BUILD_HOST`, default `192.168.1.60`) and runs the build there.
+
+## Headless diagnostics (over SSH, as the desktop user)
+
+Close BabyMon and the stock LoRa app first: only one process can own the radio.
+
+```bash
+B=/usr/share/cpz-baby-monitor/bin/cpz-baby-monitor
+$B --radio-listen        # on device 1 (echoes pings)
+$B --radio-ping 20       # on device 2: RTT, RSSI/SNR both ways
+$B --mic-test 10         # mic level meter (needs XDG_RUNTIME_DIR for pipewire-pulse)
+$B --codec-loop 15       # mic -> codec2 -> speaker
+$B --bench-codec
+```
+
+`tools/e2e_driver.py` drives the real app on a device through a virtual uinput keyboard and takes framebuffer screenshots. It's used for automated end-to-end checks.
+
+## Layout
+
+```
+src/proto/   wire format, PAKE + AEAD, link state machine   (host-tested)
+src/audio/   codec2 wrapper, VOX/AGC/jitter buffer, miniaudio I/O
+src/radio/   radio thread + SX1262 bring-up forked from CardputerZero/Cap-LoRa-1262
+src/store/   ~/.config/cpz-baby-monitor/{identity,pairing}.bin (0600, atomic writes)
+src/ui/      320x170 LVGL screens
+src/app/     controller (role pipelines) and debug modes
+```
+
+## Known limitations (v0)
+
+- The built-in mic is quiet (about −84 dBFS in a quiet room). A software AGC of up to +40 dB and a −65 dBFS VOX default compensate, but the VOX threshold may need tuning on site.
+- The app runs in the foreground only, and the screen stays on (no dimming yet).
+- Store screenshots and submission are not done yet.
