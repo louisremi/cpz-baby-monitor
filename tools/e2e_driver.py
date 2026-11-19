@@ -5,6 +5,7 @@
                         app as the desktop user, then serve commands from
                         /tmp/cpzbm-e2e.fifo (daemonized)
   e2e_driver.py cmd "key 4" | "type 123456" | "shot /tmp/s.png" | "stop"
+  e2e_driver.py cmd "key volup"   (also voldown, mute)
 
 The app reads keys from the uinput device via CAP_LORA_KEYBOARD_DEVICE, so the
 real keyboard and launcher are untouched; "stop" restores APPLaunch.
@@ -56,7 +57,18 @@ def serve():
         code = evbit("EV_KEY", "KEY_" + c.upper())
         keys[c] = code
         dev.enable(code)
-    named = {"esc": "KEY_ESC", "enter": "KEY_ENTER", "bs": "KEY_BACKSPACE", "up": "KEY_UP", "down": "KEY_DOWN"}
+    named = {
+        "esc": "KEY_ESC",
+        "enter": "KEY_ENTER",
+        "bs": "KEY_BACKSPACE",
+        "up": "KEY_UP",
+        "down": "KEY_DOWN",
+        # fn+S / fn+D / fn+A on the real keyboard: the compositor runs
+        # wfpanelctl, the app plays the confirmation tone.
+        "volup": "KEY_VOLUMEUP",
+        "voldown": "KEY_VOLUMEDOWN",
+        "mute": "KEY_MUTE",
+    }
     for k, v in named.items():
         keys[k] = evbit("EV_KEY", v)
         dev.enable(keys[k])
@@ -67,8 +79,13 @@ def serve():
     launcher("stop")
     uid, env = user_env()
     log = open(LOG, "w")
+    # Launch in a transient user scope, like APPLaunch does (a user service):
+    # polkit decisions such as NetworkManager's Wi-Fi switch depend on the
+    # process being part of the user's logind session.
     app = subprocess.Popen(
-        ["su", USER, "-c", f"{env} CAP_LORA_KEYBOARD_DEVICE={ui.devnode} exec {APP}"],
+        ["su", USER, "-c",
+         f"{env} systemd-run --user --scope --quiet --collect "
+         f"--setenv=CAP_LORA_KEYBOARD_DEVICE={ui.devnode} -- {APP}"],
         stdout=log, stderr=subprocess.STDOUT)
 
     def press(code):
@@ -98,12 +115,13 @@ def serve():
                     elif op == "stop":
                         raise SystemExit
     finally:
+        # pkill needs -f: the process name is truncated to 15 characters.
+        subprocess.call(["pkill", "-INT", "-f", f"^{APP}$"])
         app.terminate()
         try:
             app.wait(5)
         except subprocess.TimeoutExpired:
             app.kill()
-        subprocess.call(["pkill", "-INT", "-x", "cpz-baby-monitor"])
         launcher("start")
         os.unlink(FIFO)
 

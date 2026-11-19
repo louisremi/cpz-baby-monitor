@@ -47,11 +47,27 @@ US915: FCC 15.247 treats 500 kHz LoRa as wideband, so there is no dwell-time lim
 | Baby | VOX −3 dB | VOX +3 dB | Always stream | Codec 1600 / 700C | Home |
 | Parent | | | | Mute | Home |
 
-Code entry: F/X picks a device, 0–9 types the code, OK pairs, ESC goes back. System volume works as usual: fn+S / fn+D.
+Code entry: F/X picks a device, 0–9 types the code, OK pairs, ESC goes back.
+
+Key **9** turns the Wi-Fi radio off and on from any screen (a toast confirms the change). System volume works as usual — fn+S / fn+D to change it, fn+A to mute — and the app plays a short confirmation tone after each press; see [Power](#power).
 
 ## Codec
 
 The Baby encodes with Codec2 **1600** by default. Key 7 on the Baby screen switches to **700C**, the range fallback. 700C is lower quality, but each 320 ms packet is 28% shorter on air: 92 → 56 ms on EU868, 128 → 92 ms on US915. That leaves more room for retries on a weak link. The choice is saved per device in `codec.txt`. The Parent follows automatically: every audio packet carries its codec mode, and a mode change starts a new stream, so the Parent's jitter buffer resynchronises.
+
+## Power
+
+A monitor is meant to run for hours on the battery, so the app switches off what nobody is looking at. Measured on a CardputerZero with the app running, on battery (median of 30 one-second samples of `/sys/class/power_supply/bq27220-0/current_now`):
+
+| State | Draw | Saving |
+| --- | --- | --- |
+| Screen at 75%, Wi-Fi on | 437 mA ≈ 1.76 W | — |
+| Screen off (backlight 0) | 392 mA ≈ 1.58 W | 45 mA ≈ 180 mW |
+| Wi-Fi off, screen at 75% | 407 mA ≈ 1.64 W | 36 mA ≈ 145 mW |
+
+- **Screen off.** After 30 s without a key press the backlight is set to 0 and the app stops drawing. The radio and audio threads keep running, so the Parent keeps playing and the Baby keeps streaming. Any key lights the screen again (that press is consumed, it does not also act); media keys — volume, mute, brightness — never wake it. If the launcher's own `DarkTime` darkens the panel first, the app adopts that state rather than fighting it, and it follows the backlight once a second so the screen state is always what the hardware says. `CPZBM_SCREEN_OFF_SECONDS` changes the timeout (default 30, `0` = never) and `CPZBM_BACKLIGHT` points at a different `backlight` sysfs directory.
+- **Wi-Fi off.** Key 9 switches the Wi-Fi radio off while monitoring: an idle associated radio plus Tailscale costs ~145 mW, the largest saving after the backlight. The app turns it back on when it exits, and a toast reports the change once the switch really happened. A detached user service (`cpzbm-wifi-guard`) watches the app and restores the radio if it is killed, so a crash cannot leave the device unreachable. A hard power cut while the radio is off still needs Wi-Fi re-enabled from Settings after the next boot.
+- **Volume.** fn+S / fn+D / fn+A keep working as before (the compositor and `wf-panel-pi` handle them). Because our UI covers the panel's volume OSD, the app adds a 25 ms tone at the current volume: 990 Hz up, 660 Hz down, 440 Hz mute. It plays through its own short-lived stream, so it works on the Baby unit too and mixes over the Parent's audio without touching the jitter buffer. The app never grabs the keyboard, which is what keeps these keys alive.
 
 ## Build
 
@@ -101,6 +117,9 @@ $B --radio-ping 20       # on device 2: RTT, RSSI/SNR both ways
 $B --mic-test 10         # mic level meter (needs XDG_RUNTIME_DIR for pipewire-pulse)
 $B --codec-loop 15       # mic -> codec2 -> speaker
 $B --bench-codec
+$B --screen-test         # backlight off/on cycle, then restore
+$B --beep-test           # the three volume-key tones
+$B --wifi-test 10        # Wi-Fi radio off for 10 s, then back on
 ```
 
 `tools/e2e_driver.py` drives the real app on a device through a virtual uinput keyboard and takes framebuffer screenshots; it is used for automated end-to-end checks.
@@ -114,6 +133,8 @@ src/proto/   wire format, PAKE + AEAD, link state machine, band-switch handshake
 src/audio/   codec2 wrapper, VOX/AGC/jitter buffer, miniaudio I/O
 src/radio/   radio thread + SX1262 bring-up forked from CardputerZero/Cap-LoRa-1262
 src/store/   ~/.config/cpz-baby-monitor/{identity,pairing}.bin (0600, atomic writes)
+src/power/   backlight control and the screen idle policy
+src/net/     Wi-Fi radio switch and its crash guard
 src/ui/      320x170 LVGL screens; DejaVu Sans loaded at runtime (Montserrat fallback)
 src/app/     controller (role pipelines) and debug modes
 ```
@@ -121,5 +142,5 @@ src/app/     controller (role pipelines) and debug modes
 ## Known limitations (v0)
 
 - The built-in mic is quiet (about −84 dBFS in a quiet room). A software AGC of up to +40 dB and a −65 dBFS VOX default compensate, but the VOX threshold may need tuning on site.
-- The app runs in the foreground only, and the screen stays on (no dimming yet).
+- The app runs in the foreground only. The screen goes dark after 30 s without a key press; there is no gradual dimming, and only the backlight is cut (the panel controller stays powered). Turning Wi-Fi off is a saving while the app runs, not a persisted setting.
 - Not intended for store submission (see `PUBLISH.md`): the EU868 profile exceeds the sub-band's 10% duty cycle while streaming.
