@@ -62,14 +62,20 @@ bool Controller::start()
     region_          = RegionHandshake(status_.region);
     status_.radio_ok = radio_.start(profileFor(status_.region));
     if (!status_.radio_ok) status_.radio_error = radio_.error();
+    wifi_                  = WifiRadio::system([](const std::string& m) { spdlog::warn("{}", m); });
+    status_.wifi_available = wifi_->available();
+    status_.wifi_enabled   = wifi_->enabled();
     return status_.radio_ok;
 }
 
 void Controller::stop()
 {
     leaveRole();
+    beep_.stop();
     if (link_) link_->flush();
     radio_.stop();
+    // Last: if the app turned the radio off, turn it back on before we exit.
+    if (wifi_) wifi_->restore();
 }
 
 // ---------------------------------------------------------------- region --
@@ -174,6 +180,24 @@ void Controller::toggleMute()
     playback_.setMuted(status_.speaker_muted);
 }
 
+void Controller::toggleWifi()
+{
+    if (!wifi_ || !wifi_->available()) {
+        spdlog::warn("Wi-Fi: no nmcli on this device, the Wi-Fi key does nothing");
+        return;
+    }
+    if (wifi_->busy()) return;  // one toggle at a time
+    wifi_->toggle();
+    status_.wifi_enabled = wifi_->enabled();
+    spdlog::debug("Wi-Fi: radio {} requested", status_.wifi_enabled ? "on" : "off");
+}
+
+void Controller::volumeKey(int direction, uint64_t now_ms)
+{
+    if (!beep_.play(direction, now_ms)) return;
+    spdlog::debug("Audio: volume feedback {}", direction > 0 ? "up" : direction < 0 ? "down" : "mute");
+}
+
 void Controller::adjustVox(float delta_db)
 {
     const float t = std::clamp(vox_.threshold() + delta_db, kVoxMinDbfs, kVoxMaxDbfs);
@@ -200,6 +224,11 @@ void Controller::tick(uint64_t now_ms)
 {
     status_.now_ms = now_ms;
     readBattery(now_ms);
+    if (wifi_) {
+        status_.wifi_available = wifi_->available();
+        status_.wifi_enabled   = wifi_->enabled();
+    }
+    if (beep_.active()) beep_.tick(now_ms);
     RxPacket pkt;
     while (radio_.receive(&pkt)) link_->onPacket(pkt.bytes, pkt.rssi, pkt.snr, now_ms);
     link_->tick(now_ms);

@@ -70,11 +70,18 @@ int main(int argc, char** argv)
         const uint64_t now = nowMs();
         ctl.tick(now);
         ui.tick(now);
-        lv_timer_handler();
-        usleep(5000);
+        if (ui.screenOn()) {
+            lv_timer_handler();
+            usleep(5000);
+        } else {
+            // The panel is dark and the UI is not drawing: the radio and audio
+            // threads keep running, so a slower loop only adds a little latency.
+            usleep(20000);
+        }
     }
     if (!g_stop) alarm(kShutdownTimeoutSeconds);
     spdlog::info("shutting down");
+    ui.shutdown();
     ctl.stop();
     keypad.close();
     cpzbm::fonts::deinit();

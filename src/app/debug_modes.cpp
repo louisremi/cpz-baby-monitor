@@ -9,8 +9,11 @@
 #include <string>
 
 #include "audio/audio_io.hpp"
+#include "audio/beep.hpp"
 #include "audio/codec.hpp"
 #include "audio/dsp.hpp"
+#include "net/wifi_radio.hpp"
+#include "power/display_power.hpp"
 #include "radio/radio.hpp"
 
 namespace cpzbm {
@@ -178,6 +181,72 @@ int benchCodec()
     return 0;
 }
 
+// Backlight path end to end: read, off, back on, restore.
+int screenTest()
+{
+    DisplayPower power;
+    if (!power.available()) {
+        std::fprintf(stderr, "screen: no backlight at %s\n", power.dir().c_str());
+        return 1;
+    }
+    const int original = power.brightness();
+    std::printf("screen: backlight %d of %d\n", original, power.max());
+    if (!power.set(0)) {
+        std::fprintf(stderr, "screen: cannot switch the backlight off (group video?)\n");
+        return 2;
+    }
+    std::printf("screen: off\n");
+    usleep(800000);
+    const int wake = power.wakeLevel();
+    power.set(wake);
+    std::printf("screen: on %d\n", wake);
+    usleep(800000);
+    power.set(original > 0 ? original : wake);
+    std::printf("screen: restored\n");
+    return 0;
+}
+
+// Volume feedback: three tones a second apart, then the stream is released.
+int beepTest()
+{
+    audio::Beep beep;
+    for (const int direction : {1, -1, 0}) {
+        if (!beep.play(direction, nowMs())) {
+            std::fprintf(stderr, "beep: audio unavailable\n");
+            return 1;
+        }
+        std::printf("beep: %s\n", direction > 0 ? "up" : direction < 0 ? "down" : "mute");
+        const uint64_t until = nowMs() + 1000;
+        while (nowMs() < until) {
+            beep.tick(nowMs());
+            usleep(20000);
+        }
+    }
+    beep.stop();
+    return 0;
+}
+
+// Wi-Fi switch end to end: off for a few seconds, then back on. Closing the
+// app first is required; the restore path is the one the app uses on exit.
+int wifiTest(int seconds)
+{
+    auto wifi = WifiRadio::system([](const std::string& m) { std::fprintf(stderr, "%s\n", m.c_str()); });
+    if (!wifi->available()) {
+        std::fprintf(stderr, "wifi: nmcli unavailable\n");
+        return 1;
+    }
+    std::printf("wifi: %s -> off\n", wifi->enabled() ? "on" : "off");
+    if (!wifi->set(false)) {
+        std::fprintf(stderr, "wifi: could not switch the radio off\n");
+        return 2;
+    }
+    for (int i = 0; i < seconds; ++i) sleep(1);
+    std::printf("wifi: restoring\n");
+    wifi->restore();
+    std::printf("wifi: %s\n", wifi->enabled() ? "on" : "off");
+    return wifi->enabled() ? 0 : 3;
+}
+
 int argInt(int argc, char** argv, int i, int def) { return i < argc ? std::atoi(argv[i]) : def; }
 
 }  // namespace
@@ -192,6 +261,9 @@ int runDebugMode(int argc, char** argv, const volatile std::sig_atomic_t* stop)
     if (m == "--mic-test") return micTest(argInt(argc, argv, 2, 10), stop);
     if (m == "--codec-loop") return codecLoop(argInt(argc, argv, 2, 15), stop);
     if (m == "--bench-codec") return benchCodec();
+    if (m == "--screen-test") return screenTest();
+    if (m == "--beep-test") return beepTest();
+    if (m == "--wifi-test") return wifiTest(argInt(argc, argv, 2, 10));
     if (m == "--version") {
         std::printf("cpz-baby-monitor %s\n", CPZBM_VERSION);
         return 0;

@@ -12,8 +12,10 @@
 #include <vector>
 
 #include "audio/audio_io.hpp"
+#include "audio/beep.hpp"
 #include "audio/codec.hpp"
 #include "audio/dsp.hpp"
+#include "net/wifi_radio.hpp"
 #include "proto/link.hpp"
 #include "proto/region_handshake.hpp"
 #include "radio/radio.hpp"
@@ -50,6 +52,9 @@ struct AppStatus {
     uint8_t battery       = wire::kBatteryUnknown;
     Region region         = Region::US915;
     bool region_switching = false;
+    // Wi-Fi radio (power saving): available when nmcli works, enabled while on.
+    bool wifi_available = false;
+    bool wifi_enabled   = true;
 };
 
 class Controller {
@@ -75,6 +80,10 @@ public:
     void toggleCodecMode();
     void toggleMute();
     void adjustVox(float delta_db);
+
+    // Power saving and system feedback.
+    void toggleWifi();                              // key 9: radio off/on
+    void volumeKey(int direction, uint64_t now_ms); // +1 up, -1 down, 0 mute
 
     // Switches to the other radio band. When paired, the peer is told first
     // (on the current band) and both devices retune; unpaired, only this one.
@@ -125,6 +134,10 @@ private:
     std::vector<float> pending_wave_;
 
     uint64_t next_battery_ms_ = 0;
+
+    // Power saving: Wi-Fi switch and the volume-key confirmation tone.
+    std::unique_ptr<WifiRadio> wifi_;
+    audio::Beep beep_;
 };
 
 }  // namespace cpzbm

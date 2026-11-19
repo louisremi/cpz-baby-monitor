@@ -373,6 +373,12 @@ uint32_t GpsKeypad::translateKey(uint16_t code) const
             return LV_KEY_END;
         case KEY_HELP:
             return keyCommandValue(KeyCommand::Help);
+        case KEY_VOLUMEUP:
+            return keyCommandValue(KeyCommand::VolumeUp);
+        case KEY_VOLUMEDOWN:
+            return keyCommandValue(KeyCommand::VolumeDown);
+        case KEY_MUTE:
+            return keyCommandValue(KeyCommand::Mute);
         case KEY_UP:
             return LV_KEY_UP;
         case KEY_DOWN:

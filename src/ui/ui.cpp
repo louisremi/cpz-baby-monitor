@@ -1,11 +1,15 @@
 #include "ui/ui.hpp"
 
-#include "ui/fonts.hpp"
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+
+#include "input/gps_keypad.hpp"
+#include "ui/fonts.hpp"
 
 namespace cpzbm {
 namespace {
@@ -47,12 +51,39 @@ uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
     return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
+std::string backlightDir()
+{
+    const char* value = std::getenv("CPZBM_BACKLIGHT");
+    return value && value[0] != '\0' ? value : "/sys/class/backlight/backlight";
+}
+
+// How long without a user interaction before the panel goes dark.
+uint64_t screenOffTimeoutMs()
+{
+    const char* value = std::getenv("CPZBM_SCREEN_OFF_SECONDS");
+    if (!value || value[0] == '\0') return 30000;
+    const long seconds = std::strtol(value, nullptr, 10);
+    return seconds > 0 ? static_cast<uint64_t>(seconds) * 1000 : 0;  // 0 = never
+}
+
+constexpr uint64_t kToastMs = 2000;
+
 }  // namespace
 
-Ui::Ui(Controller* ctl) : ctl_(ctl) {}
+Ui::Ui(Controller* ctl)
+    : ctl_(ctl), backlight_(backlightDir()), screen_power_(screenOffTimeoutMs())
+{
+}
 
 void Ui::start()
 {
+    if (!backlight_.available()) {
+        spdlog::info("Display: no backlight control, the screen stays on");
+    } else {
+        spdlog::info("Display: backlight {} of {}, screen off after {} s without a key", backlight_.wakeLevel(),
+                     backlight_.max(), screen_power_.timeoutMs() / 1000);
+    }
+    wifi_enabled_shown_ = ctl_->status().wifi_enabled;
     if (!ctl_->status().radio_ok) {
         showScreen(Screen::RadioError);
         return;
@@ -112,7 +143,7 @@ void Ui::build()
     lv_obj_set_style_bg_color(root_, kBg, 0);
     lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, 0);
     lv_obj_remove_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
-    l_title_ = l_status_ = l_main_ = l_aux_ = bar_ = vox_mark_ = banner_ = canvas_ = nullptr;
+    l_title_ = l_status_ = l_main_ = l_aux_ = bar_ = vox_mark_ = banner_ = canvas_ = toast_ = nullptr;
     if (canvas_buf_) {
         lv_free(canvas_buf_);
         canvas_buf_ = nullptr;
@@ -224,6 +255,17 @@ void Ui::build()
             break;
         }
     }
+
+    // Transient notice (Wi-Fi toggle): hidden by default, shown for kToastMs.
+    toast_ = lv_label_create(root_);
+    lv_obj_set_style_text_font(toast_, fonts::get(fonts::Size::Body), 0);
+    lv_obj_set_style_text_color(toast_, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(toast_, lv_color_hex(0x263238), 0);
+    lv_obj_set_style_bg_opa(toast_, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(toast_, 10, 0);
+    lv_obj_set_style_pad_ver(toast_, 4, 0);
+    lv_obj_align(toast_, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_add_flag(toast_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Ui::drawWave()
@@ -379,6 +421,9 @@ void Ui::handleLinkEvents()
 {
     LinkEvent e;
     while (ctl_->pollUiEvent(&e)) {
+        // Every event here is user-visible (paired, role changed, unpaired...):
+        // show it, even if the panel is dark.
+        if (!screenOn()) wakeScreen(now_);
         switch (e.kind) {
             case LinkEvent::Kind::Paired:
                 typed_.clear();
@@ -404,10 +449,87 @@ void Ui::handleLinkEvents()
     }
 }
 
+void Ui::wakeScreen(uint64_t now_ms)
+{
+    const bool was_off = !screenOn();
+    screen_power_.wake(now_ms);
+    if (!was_off) return;
+    // The launcher may have woken it first; only write when it is still dark.
+    if (backlight_.available() && backlight_.brightness() == 0) backlight_.set(backlight_.wakeLevel());
+    lv_obj_invalidate(lv_screen_active());
+    last_refresh_ = 0;  // repaint on this tick
+    spdlog::debug("Display: screen on");
+}
+
+void Ui::sleepScreen()
+{
+    if (!screenOn()) return;
+    if (!backlight_.available()) return;  // cannot darken it: keep rendering
+    // The launcher may have darkened it already: do not re-write (and do not
+    // mark the panel as touched, which would light it up again on exit).
+    if (backlight_.brightness() != 0 && !backlight_.set(0)) {
+        if (!backlight_warned_) {
+            spdlog::warn("Display: cannot switch the backlight off, the screen stays on");
+            backlight_warned_ = true;
+        }
+        return;
+    }
+    screen_power_.adoptOff();
+    spdlog::debug("Display: screen off");
+}
+
+void Ui::toast(const char* text, uint64_t now_ms)
+{
+    if (!toast_) return;
+    lv_label_set_text(toast_, text);
+    lv_obj_remove_flag(toast_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(toast_, LV_ALIGN_BOTTOM_MID, 0, -20);
+    toast_until_ms_ = now_ms + kToastMs;
+}
+
+void Ui::shutdown() { backlight_.restore(); }
+
 void Ui::tick(uint64_t now_ms)
 {
     now_ = now_ms;
     handleLinkEvents();
+
+    if (toast_ && toast_until_ms_ != 0 && now_ms >= toast_until_ms_) {
+        lv_obj_add_flag(toast_, LV_OBJ_FLAG_HIDDEN);
+        toast_until_ms_ = 0;
+    }
+    // First tick: start the idle clock now instead of at time zero.
+    if (screen_power_.lastActivityMs() == 0) screen_power_.noteActivity(now_ms);
+
+    // Report the radio state only once it actually changed (a failed nmcli
+    // call rolls the optimistic flip back, and this corrects the toast).
+    const bool wifi_on = ctl_->status().wifi_enabled;
+    if (wifi_on != wifi_enabled_shown_) {
+        wifi_enabled_shown_ = wifi_on;
+        toast(wifi_on ? "Wi-Fi on" : "Wi-Fi off", now_ms);
+    }
+
+    // Follow the hardware. The launcher has its own DarkTime timeout and writes
+    // the same sysfs node, and it also lights the panel up again on input, so
+    // the screen state is whatever the backlight says once a second.
+    if (backlight_.available() && now_ms >= next_screen_poll_ms_) {
+        next_screen_poll_ms_ = now_ms + 1000;
+        const int level      = backlight_.brightness();
+        if (level == 0) {
+            sleepScreen();
+        } else if (!screenOn()) {
+            wakeScreen(now_ms);
+        } else if (level > 0) {
+            backlight_.captureWakeLevel();  // the user may have pressed brightness keys
+        }
+    }
+
+    if (!screenOn()) return;  // dark: no rendering at all
+    if (screen_power_.expired(now_ms)) {
+        sleepScreen();
+        return;
+    }
+
     // 25 fps on the waveform screen (one column per 40 ms), 5 fps elsewhere.
     const uint64_t period = screen_ == Screen::Parent ? 40 : 200;
     if (now_ms - last_refresh_ >= period) {
@@ -419,6 +541,32 @@ void Ui::tick(uint64_t now_ms)
 bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
 {
     if (!pressed) return true;
+
+    // Media keys: the compositor changes the sink volume itself (labwc ->
+    // wfpanelctl), the app only plays the confirmation tone. They must never
+    // wake a dark screen: adjusting the volume at night must not light it up.
+    const uint32_t media_up   = cap_gps::keyCommandValue(cap_gps::KeyCommand::VolumeUp);
+    const uint32_t media_down = cap_gps::keyCommandValue(cap_gps::KeyCommand::VolumeDown);
+    const uint32_t media_mute = cap_gps::keyCommandValue(cap_gps::KeyCommand::Mute);
+    if (key == media_up || key == media_down || key == media_mute) {
+        ctl_->volumeKey(key == media_up ? 1 : key == media_down ? -1 : 0, now_ms);
+        return true;
+    }
+
+    if (!screenOn()) {
+        wakeScreen(now_ms);
+        return true;  // the waking press does not also act
+    }
+    screen_power_.noteActivity(now_ms);
+
+    if (key == '9') {
+        ctl_->toggleWifi();
+        const auto& st = ctl_->status();
+        toast(!st.wifi_available ? "No Wi-Fi control" : st.wifi_enabled ? "Wi-Fi on" : "Wi-Fi off", now_ms);
+        refresh();
+        return true;
+    }
+
     auto& link = ctl_->link();
     const bool esc = key == LV_KEY_ESC;
     switch (screen_) {

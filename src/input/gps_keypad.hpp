@@ -10,9 +10,15 @@
 namespace cap_gps {
 
 enum class KeyCommand : uint32_t {
-    Copy  = 0x110000,
-    Paste = 0x110001,
-    Help  = 0x110002,
+    Copy       = 0x110000,
+    Paste      = 0x110001,
+    Help       = 0x110002,
+    // Media keys (fn+S / fn+D / fn+A on the CardputerZero). The compositor
+    // still handles the volume change itself; these values only let the app
+    // play the confirmation tone and keep such keys from waking the screen.
+    VolumeUp   = 0x110003,
+    VolumeDown = 0x110004,
+    Mute       = 0x110005,
 };
 
 constexpr uint32_t keyCommandValue(KeyCommand command) noexcept

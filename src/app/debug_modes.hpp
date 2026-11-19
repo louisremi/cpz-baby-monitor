@@ -6,6 +6,9 @@
 //   --mic-test [s]     print the mic level every 100 ms
 //   --codec-loop [s]   mic -> codec2 -> speaker on the same device
 //   --bench-codec      codec2 encode+decode CPU cost
+//   --screen-test      cycle the backlight off and back on
+//   --wifi-test [s]    switch the Wi-Fi radio off for s seconds, then back on
+//   --beep-test        play the three volume-key confirmation tones
 
 #include <csignal>
 
