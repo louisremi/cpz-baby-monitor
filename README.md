@@ -7,6 +7,26 @@ A baby monitor for two M5Stack **CardputerZero** devices fitted with the **Cap L
 - **Audio:** the Baby unit compresses sound with **Codec2 1600** (8 kHz) and sends it encrypted (ChaCha20-Poly1305) over LoRa while it hears something (VOX gate). The Parent unit plays it and draws a scrolling waveform.
 - **Link loss:** the Parent shows *LINK LOST* after 10 s without a packet. The Baby sends a heartbeat every 2 s while quiet.
 
+## Screens
+
+### Monitoring
+
+The Baby unit (left) watches the mic level and streams as soon as sound crosses its VOX threshold. The Parent unit (right) decodes the audio, plays it on its speaker and draws a scrolling waveform: quiet noise in blue, loud sound in orange/red.
+
+![Baby unit streaming sound, parent unit playing it and drawing the waveform](docs/images/monitoring.png)
+
+### Pairing
+
+Press **4** on one device to show a 6-digit code, **5** on the other to pick it from the list of discovered devices and type the code. Both then store a shared link key, and the last used roles are restored on the next start.
+
+![Code shown on one device and typed on the other](docs/images/pairing.png)
+
+### Home and link loss
+
+The Home screen shows the paired device, the band in use, and the role buttons (choosing a role switches the other device automatically). If the Parent stops hearing the Baby for 10 s, it covers the waveform with a *LINK LOST* banner.
+
+![Home screen with role buttons, and the link lost banner on the parent](docs/images/home-linklost.png)
+
 ## Radio
 
 Two bands; press **6 (Region)** on the Home screen to switch. The choice is saved per device in `~/.config/cpz-baby-monitor/region.txt`. When paired, the device sends the request to its peer on the current band and both retune. When unpaired, only the local device switches, so set both to the same band before pairing.
@@ -60,7 +80,9 @@ $B --codec-loop 15       # mic -> codec2 -> speaker
 $B --bench-codec
 ```
 
-`tools/e2e_driver.py` drives the real app on a device through a virtual uinput keyboard and takes framebuffer screenshots. It's used for automated end-to-end checks.
+`tools/e2e_driver.py` drives the real app on a device through a virtual uinput keyboard and takes framebuffer screenshots; it is used for automated end-to-end checks.
+
+The raw 320×170 captures live in `store/screenshots/` (they are also the App Store assets). `python3 tools/make_readme_images.py` rebuilds the bezelled composites in `docs/images/` used above, so refreshing the screenshots only takes new captures from the devices.
 
 ## Layout
 
