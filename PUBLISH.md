@@ -21,8 +21,8 @@ Portal: <https://dev.cardputer.cc/#/upload>
 
 ## Source and Ownership
 
-- Public source repository: TODO (no remote yet)
-- Expected GitHub uploader/owner: TODO
+- Public source repository: <https://github.com/louisremi/cpz-baby-monitor>
+- Expected GitHub uploader/owner: `louisremi`
 - Hide uploader email: `true`
 
 ## Listing

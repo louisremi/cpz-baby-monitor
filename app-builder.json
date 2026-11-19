@@ -26,9 +26,11 @@
       "external_display": false
     },
     "author": {
-      "display_name": "louisremi"
+      "display_name": "louisremi",
+      "github": "louisremi"
     },
     "license": "MIT",
-    "share_code": "BABY"
+    "share_code": "BABY",
+    "source_repo": "https://github.com/louisremi/cpz-baby-monitor"
   }
 }
