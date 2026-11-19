@@ -112,6 +112,11 @@ int main()
     std::printf("SF9/BW500 ToA for %zu bytes: %u us (budget 320000 us)\n", pkt, toa);
     CHECK(toa < 140000);
     CHECK(loraTimeOnAirUs(kProfileSf7, pkt) < 45000);
+    const uint32_t toa_eu = loraTimeOnAirUs(kProfileEu, pkt);
+    std::printf("EU868 SF7/BW250 ToA for %zu bytes: %u us\n", pkt, toa_eu);
+    CHECK(toa_eu < 90000);  // ~25% of a 320 ms packet interval
+    CHECK(kProfileEu.frequency_mhz - kProfileEu.bandwidth_khz / 2000.0f >= 869.4f);
+    CHECK(kProfileEu.frequency_mhz + kProfileEu.bandwidth_khz / 2000.0f <= 869.65f);
 
     std::puts("audio_test OK");
     return 0;

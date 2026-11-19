@@ -8,6 +8,7 @@
 #include <string>
 
 #include "proto/link.hpp"
+#include "radio/radio_config.hpp"
 
 namespace cpzbm::store {
 
@@ -15,6 +16,11 @@ std::string configDir();  // creates it if missing
 Identity loadOrCreateIdentity(const std::string& dir, const char* default_name);
 std::optional<Pairing> loadPairing(const std::string& dir);
 bool savePairing(const std::string& dir, const Pairing& p);  // p.peer_id==0 -> delete
+
+// region.txt: "EU868" or "US915". Missing/invalid -> fallback.
+Region loadRegion(const std::string& dir, Region fallback);
+bool saveRegion(const std::string& dir, Region r);
+std::optional<Region> parseRegion(const std::string& text);
 
 // Exposed for tests.
 std::string serialize(const Pairing& p);

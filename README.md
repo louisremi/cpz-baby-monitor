@@ -9,14 +9,21 @@ A baby monitor for two M5Stack **CardputerZero** devices fitted with the **Cap L
 
 ## Radio
 
-US915 at 915.0 MHz, BW 500 kHz, SF9, CR 4/5, +22 dBm. FCC 15.247 treats 500 kHz LoRa as wideband, so there is no dwell-time limit. One audio packet holds 8 frames (320 ms of audio) in 91 bytes and takes 123 ms on air, which keeps the channel busy about 38% of the time. Profiles are defined in `src/radio/radio_config.hpp`; `kProfileSf7` has shorter range and airtime.
+Two bands; press **6 (Region)** on the Home screen to switch. The choice is saved per device in `~/.config/cpz-baby-monitor/region.txt`. When paired, the device sends the request to its peer on the current band and both retune. When unpaired, only the local device switches, so set both to the same band before pairing.
+
+| Band | Frequency | Modulation | Airtime per 320 ms packet | Channel busy while streaming |
+| --- | --- | --- | --- | --- |
+| US915 (default) | 915.0 MHz | BW500 SF9 CR4/5, +22 dBm | 123 ms | ~38% |
+| EU868 | 869.525 MHz (869.4–869.65 sub-band) | BW250 SF7 CR4/5, +22 dBm | 77 ms | ~25% |
+
+US915: FCC 15.247 treats 500 kHz LoRa as wideband, so there is no dwell-time limit. EU868: this sub-band allows 500 mW ERP but only a **10% duty cycle**. Streaming exceeds that, so this is acceptable for private testing only and not for distribution. EU868 SF7/BW250 is about 2.5 dB less sensitive than US915 SF9/BW500. Profiles are defined in `src/radio/radio_config.hpp`.
 
 ## Keys
 
 | Screen | 4 | 5 | 6 | 7 | 8 / ESC |
 | --- | --- | --- | --- | --- | --- |
-| Home, unpaired | Show code | Enter code | | | Quit |
-| Home, paired | Baby | Parent | | | Unpair (ESC quits) |
+| Home, unpaired | Show code | Enter code | Region | | Quit |
+| Home, paired | Baby | Parent | Region (both devices) | | Unpair (ESC quits) |
 | Baby | VOX −3 dB | VOX +3 dB | Always stream | | Home |
 | Parent | | | | Mute | Home |
 
@@ -43,6 +50,7 @@ Close BabyMon and the stock LoRa app first: only one process can own the radio.
 B=/usr/share/cpz-baby-monitor/bin/cpz-baby-monitor
 $B --radio-listen        # on device 1 (echoes pings)
 $B --radio-ping 20       # on device 2: RTT, RSSI/SNR both ways
+# prefix both with CPZBM_PROFILE=eu (or sf7) to test another profile
 $B --mic-test 10         # mic level meter (needs XDG_RUNTIME_DIR for pipewire-pulse)
 $B --codec-loop 15       # mic -> codec2 -> speaker
 $B --bench-codec

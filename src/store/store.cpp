@@ -144,6 +144,28 @@ std::optional<Pairing> deserialize(const std::string& s)
     return p;
 }
 
+std::optional<Region> parseRegion(const std::string& text)
+{
+    std::string t;
+    for (char c : text)
+        if (c != '\n' && c != '\r' && c != ' ') t += c;
+    if (t == "EU868") return Region::EU868;
+    if (t == "US915") return Region::US915;
+    return std::nullopt;
+}
+
+Region loadRegion(const std::string& dir, Region fallback)
+{
+    std::string data;
+    if (!readFile(dir + "/region.txt", &data)) return fallback;
+    return parseRegion(data).value_or(fallback);
+}
+
+bool saveRegion(const std::string& dir, Region r)
+{
+    return writeFileAtomic(dir + "/region.txt", std::string(regionName(r)) + "\n");
+}
+
 std::optional<Pairing> loadPairing(const std::string& dir)
 {
     std::string data;

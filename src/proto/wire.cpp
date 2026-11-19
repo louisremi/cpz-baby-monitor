@@ -94,7 +94,7 @@ std::optional<Type> peekType(const Bytes& pkt)
     if (pkt.empty() || pkt.size() > kMaxPacket) return std::nullopt;
     if ((pkt[0] >> 4) != kVersion) return std::nullopt;
     const uint8_t t = pkt[0] & 0x0F;
-    if ((t >= 1 && t <= 5) || (t >= 8 && t <= 13)) return static_cast<Type>(t);
+    if ((t >= 1 && t <= 5) || (t >= 8 && t <= 15)) return static_cast<Type>(t);
     return std::nullopt;
 }
 

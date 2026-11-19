@@ -213,6 +213,10 @@ int main()
         CHECK(!b.link->paired());
     }
 
+    CHECK(store::parseRegion("EU868\n") == Region::EU868);
+    CHECK(store::parseRegion("US915") == Region::US915);
+    CHECK(!store::parseRegion("eu"));
+
     std::puts("link_test OK");
     return 0;
 }

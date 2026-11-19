@@ -25,6 +25,8 @@ int main()
     CHECK(!peekType(badver));
     CHECK(!peekType(Bytes{}));
     CHECK(!peekType(Bytes{static_cast<uint8_t>((kVersion << 4) | 7)}));
+    CHECK(peekType(Bytes{static_cast<uint8_t>((kVersion << 4) | 14)}) == Type::Region);
+    CHECK(peekType(Bytes{static_cast<uint8_t>((kVersion << 4) | 15)}) == Type::RegionAck);
 
     PairReq rq{1, 2, {9, 9, 9, 9, 9, 9, 9, 9}, {}, makeName("b")};
     rq.y[0]  = 0xAA;

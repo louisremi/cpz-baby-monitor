@@ -140,10 +140,10 @@ void Ui::build()
             lv_obj_set_width(l_aux_, 300);
             lv_label_set_long_mode(l_aux_, LV_LABEL_LONG_WRAP);
             if (ctl_->link().paired()) {
-                const char* nav[5] = {"Baby", "Parent", "", "", "Unpair"};
+                const char* nav[5] = {"Baby", "Parent", "Region", "", "Unpair"};
                 buildNavBar(nav);
             } else {
-                const char* nav[5] = {"Show", "Enter", "", "", "Quit"};
+                const char* nav[5] = {"Show", "Enter", "Region", "", "Quit"};
                 buildNavBar(nav);
             }
             break;
@@ -262,7 +262,8 @@ void Ui::refresh()
 
     // Status line: battery + link quality.
     if (l_status_) {
-        std::string s;
+        std::string s = st.region == Region::EU868 ? "EU  " : "US  ";
+        if (st.region_switching) s = "band... ";
         if (link.paired() && (screen_ == Screen::Baby || screen_ == Screen::Parent || screen_ == Screen::Home)) {
             if (st.last_rx_ms && st.now_ms - st.last_rx_ms < 15000)
                 std::snprintf(buf, sizeof buf, "%.0fdBm %+.0fdB  ", st.rssi, st.snr);
@@ -287,13 +288,16 @@ void Ui::refresh()
             if (link.paired()) {
                 std::snprintf(buf, sizeof buf, "Paired with %s", nameStr(link.pairing().peer_name).c_str());
                 lv_label_set_text(l_main_, buf);
-                std::snprintf(buf, sizeof buf, "Last heard %s.\nChoose this device's role; the other device switches automatically.",
-                              ago(st.now_ms, st.last_rx_ms).c_str());
+                std::snprintf(buf, sizeof buf,
+                              "Last heard %s.  Band: %s\nChoose this device's role; the other device switches automatically.",
+                              ago(st.now_ms, st.last_rx_ms).c_str(), regionName(st.region));
                 lv_label_set_text(l_aux_, buf);
             } else {
                 lv_label_set_text(l_main_, "Not paired");
-                std::snprintf(buf, sizeof buf, "This device: %s\nShow a code here, then enter it on the other device.",
-                              nameStr(ctl_->identity().name).c_str());
+                std::snprintf(buf, sizeof buf,
+                              "This device: %s  Band: %s\nShow a code here, then enter it on the other device "
+                              "(both on the same band).",
+                              nameStr(ctl_->identity().name).c_str(), regionName(st.region));
                 lv_label_set_text(l_aux_, buf);
             }
             break;
@@ -421,7 +425,10 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
             break;
         case Screen::Home:
             if (link.paired()) {
-                if (key == '4') {
+                if (key == '6') {
+                    ctl_->requestRegion(ctl_->status().region == Region::EU868 ? Region::US915 : Region::EU868, now_ms);
+                    refresh();
+                } else if (key == '4') {
                     link.setRole(Role::Baby, now_ms);  // emits RoleChanged -> screen switch
                 } else if (key == '5') {
                     link.setRole(Role::Parent, now_ms);
@@ -431,7 +438,10 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
                     quit_ = true;
                 }
             } else {
-                if (key == '4') {
+                if (key == '6') {
+                    ctl_->requestRegion(ctl_->status().region == Region::EU868 ? Region::US915 : Region::EU868, now_ms);
+                    refresh();
+                } else if (key == '4') {
                     link.startShowing(now_ms);
                     go(Screen::PairShow);
                 } else if (key == '5') {

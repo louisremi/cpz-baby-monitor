@@ -28,6 +28,8 @@ enum class Type : uint8_t {
     Role      = 11,
     RoleAck   = 12,
     Unpair    = 13,
+    Region    = 14,  // body: 1 byte cpzbm::Region; peer switches after RegionAck
+    RegionAck = 15,
 };
 
 inline constexpr bool isEncrypted(Type t) { return static_cast<uint8_t>(t) >= 8; }

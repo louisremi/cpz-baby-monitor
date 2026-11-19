@@ -44,6 +44,8 @@ struct AppStatus {
     float rssi = 0, snr = 0;
     uint64_t tx_packets = 0, rx_packets = 0, audio_packets = 0, lost_packets = 0;
     uint8_t battery = 255;
+    Region region         = Region::US915;
+    bool region_switching = false;
 };
 
 class Controller {
@@ -68,6 +70,10 @@ public:
     void toggleMute();
     void adjustVox(float delta_db);
 
+    // Switches the radio band. When paired, the peer is told first (on the
+    // current band) and both devices retune; unpaired, only this device does.
+    void requestRegion(Region r, uint64_t now_ms);
+
     // Link events are drained by the controller and re-queued for the UI.
     bool pollUiEvent(LinkEvent* e);
 
@@ -77,6 +83,8 @@ private:
     void onMessage(const LinkEvent& e, uint64_t now_ms);
     void pushWave(float v);
     void readBattery(uint64_t now_ms);
+    void regionTick(uint64_t now_ms);
+    void applyRegion(Region r);
 
     Radio radio_;
     Identity identity_;
@@ -108,6 +116,15 @@ private:
     std::vector<float> pending_wave_;
 
     uint64_t next_battery_ms_ = 0;
+
+    // Region change handshake
+    bool region_req_pending_   = false;  // we asked the peer, awaiting RegionAck
+    Region region_req_         = Region::US915;
+    uint64_t region_next_ms_   = 0;
+    int region_retries_        = 0;
+    bool region_switch_due_    = false;  // peer asked us; retune once our ack is out
+    Region region_switch_to_   = Region::US915;
+    uint64_t region_switch_by_ = 0;
 };
 
 // Number of codec frames per AUDIO packet (8 x 40 ms = 320 ms).

@@ -26,7 +26,9 @@ uint64_t nowMs()
 LinkProfile profileFromEnv()
 {
     const char* p = std::getenv("CPZBM_PROFILE");
-    return p && std::strcmp(p, "sf7") == 0 ? kProfileSf7 : kProfileSf9;
+    if (p && std::strcmp(p, "sf7") == 0) return kProfileSf7;
+    if (p && std::strcmp(p, "eu") == 0) return kProfileEu;
+    return kProfileSf9;
 }
 
 // Raw radio test packets use a version nibble (0xF) the app ignores.

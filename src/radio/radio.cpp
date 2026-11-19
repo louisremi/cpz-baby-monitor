@@ -141,7 +141,10 @@ void Radio::threadMain()
             }
         }
         was_tx = lora.tx_in_progress();
-        tx_inflight_ = was_tx;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            tx_inflight_ = was_tx;
+        }
         if (!was_tx) {
             std::vector<uint8_t> next;
             {
@@ -149,6 +152,7 @@ void Radio::threadMain()
                 if (!tx_queue_.empty()) {
                     next = std::move(tx_queue_.front());
                     tx_queue_.pop_front();
+                    tx_inflight_ = true;  // under the lock: txBusy() never sees a gap
                 }
             }
             if (!next.empty()) {
@@ -160,6 +164,7 @@ void Radio::threadMain()
                 } else {
                     std::lock_guard<std::mutex> lock(mutex_);
                     ++stats_.tx_dropped;
+                    tx_inflight_ = false;
                 }
             }
         }

@@ -49,9 +49,58 @@ bool Controller::start()
     }
     spdlog::info("Identity: {:08x} '{}'", identity_.dev_id,
                  std::string(identity_.name.data(), strnlen(identity_.name.data(), identity_.name.size())));
-    status_.radio_ok = radio_.start(kProfileSf9);
+    status_.region   = store::loadRegion(config_dir_, Region::US915);
+    status_.radio_ok = radio_.start(profileFor(status_.region));
     if (!status_.radio_ok) status_.radio_error = radio_.error();
     return status_.radio_ok;
+}
+
+void Controller::applyRegion(Region r)
+{
+    if (!store::saveRegion(config_dir_, r)) spdlog::error("Store: failed to save region");
+    status_.region = r;
+    radio_.stop();
+    status_.radio_ok = radio_.start(profileFor(r));
+    status_.radio_error = status_.radio_ok ? "" : radio_.error();
+    spdlog::info("Region: now {}", regionName(r));
+}
+
+void Controller::requestRegion(Region r, uint64_t now_ms)
+{
+    if (r == status_.region || region_req_pending_ || region_switch_due_) return;
+    if (!link_->paired()) {
+        applyRegion(r);
+        return;
+    }
+    region_req_pending_     = true;
+    region_req_             = r;
+    region_retries_         = 0;
+    region_next_ms_         = now_ms;
+    status_.region_switching = true;
+}
+
+void Controller::regionTick(uint64_t now_ms)
+{
+    constexpr int kMaxRegionRetries   = 8;
+    constexpr uint64_t kRegionRetryMs = 700;
+    if (region_req_pending_ && now_ms >= region_next_ms_) {
+        if (region_retries_++ >= kMaxRegionRetries) {
+            // No ack heard: the peer may have switched with our ack lost, or be
+            // off. Retune anyway so both ends converge on the requested band.
+            spdlog::warn("Region: no ack from peer, switching anyway");
+            region_req_pending_      = false;
+            status_.region_switching = false;
+            applyRegion(region_req_);
+        } else {
+            link_->sendSecure(wire::Type::Region, {static_cast<uint8_t>(region_req_)});
+            region_next_ms_ = now_ms + kRegionRetryMs;
+        }
+    }
+    if (region_switch_due_ && now_ms >= region_switch_by_ && !radio_.txBusy()) {
+        region_switch_due_       = false;
+        status_.region_switching = false;
+        applyRegion(region_switch_to_);
+    }
 }
 
 void Controller::stop()
@@ -153,6 +202,7 @@ void Controller::tick(uint64_t now_ms)
     status_.rssi         = link_->lastRssi();
     status_.snr          = link_->lastSnr();
 
+    regionTick(now_ms);
     if (active_role_ == Role::Baby) babyTick(now_ms);
     if (active_role_ == Role::Parent) parentTick(now_ms);
 }
@@ -215,6 +265,28 @@ void Controller::onMessage(const LinkEvent& e, uint64_t now_ms)
     if (active_role_ == Role::Parent && now_ms >= next_keepalive_ms_) {
         link_->sendSecure(wire::Type::Keepalive, {});
         next_keepalive_ms_ = now_ms + kKeepaliveMs;
+    }
+    if (e.type == wire::Type::Region && e.body.size() == 1 && e.body[0] <= 1) {
+        const auto r = static_cast<Region>(e.body[0]);
+        link_->sendSecure(wire::Type::RegionAck, {e.body[0]});
+        if (r != status_.region && !region_switch_due_) {
+            region_switch_due_       = true;
+            region_switch_to_        = r;
+            // Stay on the old band long enough to ack the requester's retries
+            // (every 700 ms) too: a single ack can be lost to a collision.
+            region_switch_by_        = now_ms + 1500;
+            status_.region_switching = true;
+            spdlog::info("Region: peer requested {}", regionName(r));
+        }
+        return;
+    }
+    if (e.type == wire::Type::RegionAck) {
+        if (region_req_pending_ && e.body.size() == 1 && e.body[0] == static_cast<uint8_t>(region_req_)) {
+            region_req_pending_      = false;
+            status_.region_switching = false;
+            applyRegion(region_req_);
+        }
+        return;
     }
     if (e.type == wire::Type::Heartbeat) {
         if (auto hb = wire::decodeHeartbeat(e.body)) {

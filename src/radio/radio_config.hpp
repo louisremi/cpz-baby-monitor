@@ -1,8 +1,18 @@
 #pragma once
 
-// Radio link profiles. US915 at 500 kHz bandwidth: FCC 15.247 treats >=500 kHz
-// digital modulation as wideband, so there is no dwell-time limit and audio
-// can be streamed continuously at up to +22 dBm (the SX1262 maximum).
+// Radio link profiles.
+//
+// US915: 500 kHz bandwidth. FCC 15.247 treats >=500 kHz digital modulation as
+// wideband, so there is no dwell-time limit and audio can be streamed
+// continuously at up to +22 dBm (the SX1262 maximum).
+//
+// EU868: the 869.40-869.65 MHz sub-band (ETSI EN 300 220 band "P", 500 mW
+// ERP; +22 dBm conducted is ~160 mW) is the only 250 kHz-wide slot, centred
+// on 869.525 MHz. SF7/BW250: ~80 ms on air per 320 ms audio packet, i.e. the
+// channel is busy ~25% while streaming (SF8 would be ~45%), at ~2.5 dB less
+// sensitivity than US915 SF9/BW500. The band's legal limit is a 10% duty
+// cycle, so streaming exceeds it: accepted for private testing only, and must
+// be revisited before any distribution (e.g. 700C + longer packets).
 
 #include <cmath>
 #include <cstddef>
@@ -23,6 +33,12 @@ struct LinkProfile {
 
 inline constexpr LinkProfile kProfileSf9{};
 inline constexpr LinkProfile kProfileSf7{"sf7", 915.0f, 500.0f, 7, 5, 0x12, 22, 8};
+inline constexpr LinkProfile kProfileEu{"eu868", 869.525f, 250.0f, 7, 5, 0x12, 22, 8};
+
+enum class Region : uint8_t { US915 = 0, EU868 = 1 };
+
+inline const LinkProfile& profileFor(Region r) { return r == Region::EU868 ? kProfileEu : kProfileSf9; }
+inline const char* regionName(Region r) { return r == Region::EU868 ? "EU868" : "US915"; }
 
 // LoRa time-on-air (Semtech AN1200.13), explicit header, CRC on.
 // Used for planning/tests; the radio thread uses RadioLib's own value.
