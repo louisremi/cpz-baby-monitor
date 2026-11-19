@@ -83,14 +83,25 @@ jobs:
             cpzbm-build bash scripts/ci_build.sh
 
       - name: Sanity-check the package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          deb="$(ls dist/cpz-baby-monitor_*.deb)"
-          dpkg-deb -I "${deb}" | grep -qx " Version: ${{ steps.version.outputs.version }}-1" ||
-            { echo "::error::.deb version does not match the release"; exit 1; }
-          dpkg-deb -c "${deb}" | grep -q ./usr/share/APPLaunch/applications/cpz-baby-monitor.desktop
-          dpkg-deb -c "${deb}" | grep -q ./usr/share/cpz-baby-monitor/bin/cpz-baby-monitor
-          "$(command -v dpkg-deb)" --info "${deb}" | sed -n '/Depends/p'
+          shopt -s nullglob
+          debs=(dist/cpz-baby-monitor_*.deb)
+          [[ ${#debs[@]} -eq 1 ]] || { echo "::error::expected one .deb, found ${#debs[@]}"; exit 1; }
+          deb="${debs[0]}"
+          # Capture first: `dpkg-deb | grep -q` makes dpkg-deb die of EPIPE,
+          # which pipefail then reports as a failure.
+          info="$(dpkg-deb -I "${deb}")"
+          grep -qx " Version: ${VERSION}-1" <<<"${info}" ||
+            { echo "::error::.deb version does not match the release"; echo "${info}"; exit 1; }
+          files="$(dpkg-deb -c "${deb}")"
+          grep -q './usr/share/APPLaunch/applications/cpz-baby-monitor.desktop' <<<"${files}" ||
+            { echo "::error::APPLaunch desktop entry missing"; exit 1; }
+          grep -q './usr/share/cpz-baby-monitor/bin/cpz-baby-monitor' <<<"${files}" ||
+            { echo "::error::binary missing"; exit 1; }
+          grep ' Depends:' <<<"${info}"
           echo "OK: ${deb}"
 
       - name: Upload build artifact

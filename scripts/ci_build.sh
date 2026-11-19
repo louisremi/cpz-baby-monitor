@@ -28,12 +28,12 @@ echo "== package"
 mkdir -p dist
 cp build/arm64/cpz-baby-monitor dist/cpz-baby-monitor
 aarch64-linux-gnu-strip dist/cpz-baby-monitor
-file dist/cpz-baby-monitor | grep -q "ARM aarch64" || { echo "not an arm64 binary" >&2; exit 1; }
+file dist/cpz-baby-monitor | grep "ARM aarch64" >/dev/null || { echo "not an arm64 binary" >&2; exit 1; }
 # The package links both codecs and crypto dynamically: their package names are
 # in Depends, so check the binary really needs them (a silent static fallback
 # would change the licence obligations).
 for lib in libcodec2.so.1.2 libsodium.so.23; do
-    aarch64-linux-gnu-readelf -d dist/cpz-baby-monitor | grep -q "${lib}" || {
+    aarch64-linux-gnu-readelf -d dist/cpz-baby-monitor | grep "${lib}" >/dev/null || {
         echo "missing dynamic dependency: ${lib}" >&2
         exit 1
     }
