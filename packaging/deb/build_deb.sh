@@ -45,8 +45,20 @@ set -e
 if [ "$1" = "configure" ]; then
     udevadm control --reload-rules >/dev/null 2>&1 || true
     udevadm trigger --subsystem-match=leds --action=change >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=usb --action=change >/dev/null 2>&1 || true
+    # The chip is already present on an installed system: no reboot needed.
+    for dev in /sys/bus/usb/devices/*; do
+        [ "$(cat "$dev/idVendor" 2>/dev/null)" = "0fe6" ] || continue
+        echo auto > "$dev/power/control" 2>/dev/null || true
+    done
 fi
 exit 0
+EOF
+cat > "$STAGE/usr/lib/udev/rules.d/79-$PKG-usb.rules" <<'EOF'
+# cpz-baby-monitor: let the internal USB Ethernet chip (SR9900A) runtime-suspend
+# while the RJ45 port is unused. Otherwise it keeps the whole USB bus awake at
+# ~8000 interrupts/s, which costs about 105 mA.
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="0fe6", ATTR{idProduct}=="9900", TEST=="power/control", ATTR{power/control}="auto"
 EOF
 chmod 755 "$STAGE/DEBIAN/postinst"
 cat > "$STAGE/DEBIAN/prerm" <<'EOF'

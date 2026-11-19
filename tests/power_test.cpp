@@ -12,6 +12,7 @@
 
 #include "net/wifi_radio.hpp"
 #include "power/display_power.hpp"
+#include "power/low_battery.hpp"
 #include "power/screen_power.hpp"
 #include "power/status_leds.hpp"
 #include "test_support.hpp"
@@ -182,6 +183,37 @@ void statusLedTests()
     std::filesystem::remove_all(root);
 }
 
+// Low-battery shutdown: two consecutive low readings, never on mains power.
+void lowBatteryTests()
+{
+    {
+        LowBattery low(8);
+        CHECK(low.threshold() == 8);
+        CHECK(!low.update(10, false));
+        CHECK(!low.update(8, false));  // first confirmation
+        CHECK(low.update(8, false));   // second: shut down
+        CHECK(low.confirmed());
+        CHECK(!low.update(5, false));  // only once
+    }
+    {
+        LowBattery low(8);
+        CHECK(!low.update(8, true));    // charging
+        CHECK(!low.update(-1, false));  // gauge unreadable
+        CHECK(!low.update(9, false));   // above the threshold
+        CHECK(!low.update(8, false));   // counter was reset
+        CHECK(low.update(7, false));
+    }
+    {
+        LowBattery never(0);  // disabled
+        for (int i = 0; i < 10; ++i) CHECK(!never.update(0, false));
+    }
+    {
+        LowBattery one(20, 1);  // a single confirmation is enough
+        CHECK(one.update(20, false));
+        CHECK(!one.update(20, false));
+    }
+}
+
 void screenPolicyTests()
 {
     ScreenPowerPolicy policy(30000);
@@ -301,6 +333,7 @@ int main()
 {
     displayPowerTests();
     statusLedTests();
+    lowBatteryTests();
     screenPolicyTests();
     wifiRadioTests();
     std::puts("power_test OK");

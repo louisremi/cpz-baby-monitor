@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -24,7 +25,16 @@ constexpr uint64_t kBatteryPollMs    = 30000;
 constexpr int kMaxWaveCatchUp        = 10;    // columns per tick; beyond this the UI was blocked
 constexpr std::size_t kPacketSamples = kBlock * kFramesPerPacket;
 constexpr float kVoxMinDbfs = -70.0f, kVoxMaxDbfs = -10.0f;
-constexpr const char* kBatteryPath = "/sys/class/power_supply/bq27220-0/capacity";
+constexpr const char* kBatteryPath   = "/sys/class/power_supply/bq27220-0/capacity";
+constexpr const char* kChargerPath   = "/sys/class/power_supply/bq27220-0/status";
+constexpr int kLowBatteryPercent     = 8;  // shut down before the cell is empty
+
+int lowBatteryThreshold()
+{
+    const char* value = std::getenv("CPZBM_LOW_BATTERY_PERCENT");
+    if (!value || value[0] == '\0') return kLowBatteryPercent;
+    return std::atoi(value);  // 0 disables the shutdown
+}
 
 std::string hostName()
 {
@@ -37,7 +47,7 @@ const char* roleName(Role r) { return r == Role::Baby ? "baby" : r == Role::Pare
 
 }  // namespace
 
-Controller::Controller() = default;
+Controller::Controller() : low_battery_(lowBatteryThreshold()) {}
 Controller::~Controller() { stop(); }
 
 bool Controller::start()
@@ -215,9 +225,24 @@ void Controller::readBattery(uint64_t now_ms)
 {
     if (now_ms < next_battery_ms_) return;
     next_battery_ms_ = now_ms + kBatteryPollMs;
-    std::ifstream f(kBatteryPath);
-    int v = -1;
-    if (f >> v && v >= 0 && v <= 100) status_.battery = static_cast<uint8_t>(v);
+    {
+        std::ifstream f(kBatteryPath);
+        int v = -1;
+        if (f >> v && v >= 0 && v <= 100) status_.battery = static_cast<uint8_t>(v);
+    }
+    // Anything but "Discharging" (Charging, Full, Not charging, unknown) means
+    // the charger is connected: never shut down on mains power.
+    {
+        std::ifstream f(kChargerPath);
+        std::string text;
+        std::getline(f, text);
+        status_.charging = text != "Discharging";
+    }
+    const int percent = status_.battery == wire::kBatteryUnknown ? -1 : static_cast<int>(status_.battery);
+    if (low_battery_.update(percent, status_.charging)) {
+        shutdown_requested_ = true;
+        spdlog::warn("Battery at {}%, not charging: shutting down", percent);
+    }
 }
 
 void Controller::tick(uint64_t now_ms)

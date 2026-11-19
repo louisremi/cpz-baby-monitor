@@ -82,7 +82,7 @@ int main(int argc, char** argv)
         }
     }
 
-    while (!g_stop && !ui.quitRequested()) {
+    while (!g_stop && !ui.quitRequested() && !ctl.shutdownRequested()) {
         keypad.poll();
         const uint64_t now = nowMs();
         ctl.tick(now);
@@ -96,7 +96,10 @@ int main(int argc, char** argv)
             usleep(20000);
         }
     }
-    if (!g_stop) alarm(kShutdownTimeoutSeconds);
+    // A low-battery shutdown restores everything first, then powers off, so the
+    // hard-exit alarm must not cut that short.
+    const bool powering_off = ctl.shutdownRequested();
+    if (!g_stop && !powering_off) alarm(kShutdownTimeoutSeconds);
     spdlog::info("shutting down");
     leds.restore();
     ui.shutdown();
@@ -105,5 +108,9 @@ int main(int argc, char** argv)
     cpzbm::fonts::deinit();
     cap_gps::shutdownLvglHal();
     alarm(0);
+    if (powering_off) {
+        spdlog::warn("Battery low: powering off");
+        if (std::system("systemctl poweroff") != 0) spdlog::error("systemctl poweroff failed");
+    }
     return 0;
 }

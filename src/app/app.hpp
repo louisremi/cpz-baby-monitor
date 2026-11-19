@@ -16,6 +16,7 @@
 #include "audio/codec.hpp"
 #include "audio/dsp.hpp"
 #include "net/wifi_radio.hpp"
+#include "power/low_battery.hpp"
 #include "proto/link.hpp"
 #include "proto/region_handshake.hpp"
 #include "radio/radio.hpp"
@@ -55,6 +56,8 @@ struct AppStatus {
     // Wi-Fi radio (power saving): available when nmcli works, enabled while on.
     bool wifi_available = false;
     bool wifi_enabled   = true;
+    // Battery: true while the charger is connected (or the state is unknown).
+    bool charging = false;
 };
 
 class Controller {
@@ -69,6 +72,8 @@ public:
     Link& link() { return *link_; }
     const Identity& identity() const { return identity_; }
     const AppStatus& status() const { return status_; }
+    // Set once when the battery is low and the charger is not connected.
+    bool shutdownRequested() const { return shutdown_requested_; }
 
     // Activates the role pipeline: Baby = capture/encode/send, Parent = receive/play.
     void enterRole(Role role);
@@ -138,6 +143,8 @@ private:
     // Power saving: Wi-Fi switch and the volume-key confirmation tone.
     std::unique_ptr<WifiRadio> wifi_;
     audio::Beep beep_;
+    LowBattery low_battery_;
+    bool shutdown_requested_ = false;
 };
 
 }  // namespace cpzbm
