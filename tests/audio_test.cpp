@@ -1,9 +1,12 @@
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 #include "audio/codec.hpp"
 #include "audio/dsp.hpp"
+#include "audio/tone.hpp"
 #include "radio/radio_config.hpp"
 #include "test_support.hpp"
 
@@ -171,6 +174,29 @@ int main()
     CHECK(toa_eu < 90000);  // ~25% of a 320 ms packet interval
     CHECK(kProfileEu.frequency_mhz - kProfileEu.bandwidth_khz / 2000.0f >= 869.4f);
     CHECK(kProfileEu.frequency_mhz + kProfileEu.bandwidth_khz / 2000.0f <= 869.65f);
+
+    // Volume-key confirmation tone: 25 ms, ramped to zero at both ends, never
+    // louder than requested, and the three directions are distinguishable.
+    {
+        std::vector<int16_t> tone;
+        renderTone(tone, 990, 25, kSampleRate, 0.35f);
+        CHECK(tone.size() == static_cast<std::size_t>(kSampleRate * 25 / 1000));
+        CHECK(tone.front() == 0 && tone.back() == 0);
+        int loudest = 0;
+        for (const auto sample : tone) loudest = std::max(loudest, std::abs(static_cast<int>(sample)));
+        const int ceiling = static_cast<int>(0.35f * 32767);
+        CHECK(loudest <= ceiling + 1);
+        CHECK(loudest > ceiling * 9 / 10);
+        std::vector<int16_t> down, mute;
+        renderTone(down, 660, 25, kSampleRate, 0.35f);
+        renderTone(mute, 440, 25, kSampleRate, 0.35f);
+        CHECK(down.size() == tone.size() && mute.size() == tone.size());
+        CHECK(down != tone && mute != tone);
+        // A zero-length request is harmless.
+        std::vector<int16_t> empty;
+        renderTone(empty, 990, 0, kSampleRate, 0.35f);
+        CHECK(empty.empty());
+    }
 
     std::puts("audio_test OK");
     return 0;

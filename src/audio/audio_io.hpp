@@ -33,9 +33,13 @@ class Playback {
 public:
     Playback();
     ~Playback();
-    bool start();
+    // `quiet` suppresses the "playback started" log line; the volume feedback
+    // tone opens a stream per burst and must not spam the journal.
+    bool start(bool quiet = false);
     void stop();
+    bool active() const { return impl_ != nullptr; }
     void write(const int16_t* pcm, std::size_t n);
+    void clear();
     void setMuted(bool muted);
     // Samples queued but not yet played.
     std::size_t queued() const;

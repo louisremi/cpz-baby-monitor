@@ -154,7 +154,7 @@ void playbackCallback(ma_device* dev, void* output, const void*, ma_uint32 frame
 Playback::Playback() = default;
 Playback::~Playback() { stop(); }
 
-bool Playback::start()
+bool Playback::start(bool quiet)
 {
     if (impl_) return true;
     impl_ = new Impl();
@@ -183,7 +183,7 @@ bool Playback::start()
         stop();
         return false;
     }
-    spdlog::info("Audio: playback started");
+    if (!quiet) spdlog::info("Audio: playback started");
     return true;
 }
 
@@ -204,6 +204,13 @@ void Playback::write(const int16_t* pcm, std::size_t n)
     constexpr std::size_t kMax = kSampleRate * 2;
     impl_->queue.insert(impl_->queue.end(), pcm, pcm + n);
     while (impl_->queue.size() > kMax) impl_->queue.pop_front();
+}
+
+void Playback::clear()
+{
+    if (!impl_) return;
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->queue.clear();
 }
 
 void Playback::setMuted(bool muted)

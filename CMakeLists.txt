@@ -29,13 +29,15 @@ add_library(cpzbm_core STATIC
     src/proto/link.cpp
     src/store/store.cpp
     src/audio/codec.cpp
+    src/power/display_power.cpp
+    src/net/wifi_radio.cpp
 )
 target_include_directories(cpzbm_core PUBLIC src)
 target_compile_options(cpzbm_core PRIVATE ${WARN})
-target_link_libraries(cpzbm_core PUBLIC PkgConfig::SODIUM PkgConfig::CODEC2)
+target_link_libraries(cpzbm_core PUBLIC PkgConfig::SODIUM PkgConfig::CODEC2 Threads::Threads)
 
 if(BUILD_TESTING)
-    foreach(t wire crypto link audio region)
+    foreach(t wire crypto link audio region power)
         add_executable(${t}_test tests/${t}_test.cpp)
         target_include_directories(${t}_test PRIVATE tests)
         target_compile_options(${t}_test PRIVATE ${WARN})
@@ -110,6 +112,7 @@ add_executable(cpz-baby-monitor
     src/radio/hw/cap_lora_1262.cpp
     src/radio/hw/driver/PI4IO/pi4ioe5v6408_driver.cpp
     src/audio/audio_io.cpp
+    src/audio/beep.cpp
 )
 # The SX1262 facade shares pw::span with the C++20 pigweed library.
 set_target_properties(cpz-baby-monitor PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
