@@ -191,7 +191,7 @@ void Ui::build()
             l_main_ = label(root_, "", fonts::get(fonts::Size::Large), kFg, 10, 74);
             l_aux_  = label(root_, "", fonts::get(fonts::Size::Small), kDim, 10, 100);
             lv_obj_set_width(l_aux_, 300);
-            const char* nav[5] = {"VOX-", "VOX+", "Always", "", "Home"};
+            const char* nav[5] = {"VOX-", "VOX+", "Always", "Codec", "Home"};
             buildNavBar(nav);
             break;
         }
@@ -350,15 +350,16 @@ void Ui::refresh()
                 std::snprintf(buf, sizeof buf, "%s", st.gate_open ? "Sound - streaming" : "Quiet - listening");
             lv_label_set_text(l_main_, buf);
             lv_obj_set_style_text_color(l_main_, st.gate_open ? kBad : kFg, 0);
-            std::snprintf(buf, sizeof buf, "%s\nVOX %.0f dB  gain %+.0f dB  sent %llu\nparent heard %s",
+            std::snprintf(buf, sizeof buf, "%s\nVOX %.0f dB  gain %+.0f dB  codec %s\nsent %llu  parent heard %s",
                           st.audio_error.empty() ? "" : st.audio_error.c_str(), st.vox_dbfs, st.agc_db,
-                          static_cast<unsigned long long>(st.audio_packets), ago(st.now_ms, st.last_rx_ms).c_str());
+                          audio::modeName(st.codec), static_cast<unsigned long long>(st.audio_packets),
+                          ago(st.now_ms, st.last_rx_ms).c_str());
             lv_label_set_text(l_aux_, buf + (st.audio_error.empty() ? 1 : 0));
             break;
         }
         case Screen::Parent: {
             drawWave();
-            const bool lost = st.last_rx_ms == 0 || st.now_ms - st.last_rx_ms > 10000;
+            const bool lost = linkLost(st.now_ms, st.last_rx_ms);
             if (lost)
                 lv_obj_remove_flag(banner_, LV_OBJ_FLAG_HIDDEN);
             else
@@ -487,6 +488,7 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
             if (key == '4') ctl_->adjustVox(-3.0f);
             else if (key == '5') ctl_->adjustVox(3.0f);
             else if (key == '6') ctl_->toggleAlwaysStream();
+            else if (key == '7') ctl_->toggleCodecMode();
             else if (esc || key == '8') {
                 ctl_->leaveRole();
                 showScreen(Screen::Home);

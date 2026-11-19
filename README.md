@@ -24,10 +24,14 @@ US915: FCC 15.247 treats 500 kHz LoRa as wideband, so there is no dwell-time lim
 | --- | --- | --- | --- | --- | --- |
 | Home, unpaired | Show code | Enter code | Region | | Quit |
 | Home, paired | Baby | Parent | Region (both devices) | | Unpair (ESC quits) |
-| Baby | VOX −3 dB | VOX +3 dB | Always stream | | Home |
+| Baby | VOX −3 dB | VOX +3 dB | Always stream | Codec 1600 / 700C | Home |
 | Parent | | | | Mute | Home |
 
 Code entry: F/X picks a device, 0–9 types the code, OK pairs, ESC goes back. System volume works as usual: fn+S / fn+D.
+
+## Codec
+
+The Baby encodes with Codec2 **1600** by default. Key 7 on the Baby screen switches to **700C**, the range fallback. 700C is lower quality, but each 320 ms packet is 28% shorter on air: 92 → 56 ms on EU868, 128 → 92 ms on US915. That leaves more room for retries on a weak link. The choice is saved per device in `codec.txt`. The Parent follows automatically: every audio packet carries its codec mode, and a mode change starts a new stream, so the Parent's jitter buffer resynchronises.
 
 ## Build
 

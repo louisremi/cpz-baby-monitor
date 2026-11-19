@@ -15,7 +15,6 @@ namespace cpzbm {
 namespace {
 
 constexpr int kBlock                 = 320;  // 40 ms at 8 kHz = one codec2 frame
-constexpr audio::Mode kBabyMode      = audio::Mode::M1600;
 constexpr uint64_t kHeartbeatMs      = 2000;
 constexpr uint64_t kKeepaliveMs      = 4000;
 constexpr uint64_t kWaveColumnMs     = 40;
@@ -58,6 +57,7 @@ bool Controller::start()
     }
     spdlog::info("Identity: {:08x} '{}'", identity_.dev_id,
                  std::string(identity_.name.data(), strnlen(identity_.name.data(), identity_.name.size())));
+    status_.codec    = store::loadCodecMode(config_dir_, audio::Mode::M1600);
     status_.region   = store::loadRegion(config_dir_, Region::US915);
     region_          = RegionHandshake(status_.region);
     status_.radio_ok = radio_.start(profileFor(status_.region));
@@ -124,14 +124,11 @@ void Controller::enterRole(Role role)
     active_role_ = role;
     status_.audio_error.clear();
     if (role == Role::Baby) {
-        enc_ = std::make_unique<audio::Codec>(kBabyMode);
-        packetizer_.emplace(kFramesPerPacket, enc_->bytesPerFrame());
-        audio_stream_ = static_cast<uint8_t>(crypto::randomU32());
-        audio_seq_    = 0;
+        startEncoder();
         if (!capture_.start(kBlock)) status_.audio_error = capture_.error();
         next_heartbeat_ms_ = 0;
     } else if (role == Role::Parent) {
-        dec_ = std::make_unique<audio::Codec>(kBabyMode);
+        dec_.reset();  // created from the mode byte of the first audio packet
         jitter_.reset();
         if (!playback_.start()) status_.audio_error = playback_.error();
         playback_.setMuted(status_.speaker_muted);
@@ -140,6 +137,25 @@ void Controller::enterRole(Role role)
         pending_wave_.clear();
     }
     spdlog::info("Role: entered {}", roleName(role));
+}
+
+// (Re)starts the encoder pipeline. A new stream id tells the parent's jitter
+// buffer that sequence numbers restart (also used on a codec mode change, as
+// packets of the two modes must not be mixed in one stream).
+void Controller::startEncoder()
+{
+    enc_ = std::make_unique<audio::Codec>(status_.codec);
+    packetizer_.emplace(kFramesPerPacket, enc_->bytesPerFrame());
+    audio_stream_ = static_cast<uint8_t>(crypto::randomU32());
+    audio_seq_    = 0;
+}
+
+void Controller::toggleCodecMode()
+{
+    status_.codec = audio::otherMode(status_.codec);
+    if (!store::saveCodecMode(config_dir_, status_.codec)) spdlog::error("Store: failed to save codec mode");
+    if (active_role_ == Role::Baby) startEncoder();
+    spdlog::info("Codec: now {}", audio::modeName(status_.codec));
 }
 
 void Controller::leaveRole()
@@ -219,7 +235,7 @@ void Controller::sendAudioPacket(std::vector<uint8_t> frames)
     wire::Audio a;
     a.stream  = audio_stream_;
     a.seq     = audio_seq_++;
-    a.mode    = kBabyMode;
+    a.mode    = status_.codec;
     a.nframes = static_cast<uint8_t>(kFramesPerPacket);
     a.frames  = std::move(frames);
     link_->sendSecure(wire::Type::Audio, wire::encode(a));

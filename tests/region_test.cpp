@@ -117,6 +117,10 @@ int main()
     CHECK(store::parseRegion("US915") == Region::US915);
     CHECK(!store::parseRegion("eu"));
 
+    CHECK(store::parseCodecMode("700C\n") == audio::Mode::M700C);
+    CHECK(store::parseCodecMode("1600") == audio::Mode::M1600);
+    CHECK(!store::parseCodecMode("3200"));
+
     std::puts("region_test OK");
     return 0;
 }

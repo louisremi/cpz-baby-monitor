@@ -8,6 +8,7 @@
 #include <string>
 
 #include "proto/link.hpp"
+#include "audio/codec_mode.hpp"
 #include "radio/radio_config.hpp"
 
 namespace cpzbm::store {
@@ -21,6 +22,11 @@ bool savePairing(const std::string& dir, const Pairing& p);  // p.peer_id==0 -> 
 Region loadRegion(const std::string& dir, Region fallback);
 bool saveRegion(const std::string& dir, Region r);
 std::optional<Region> parseRegion(const std::string& text);
+
+// codec.txt: "1600" or "700C" (baby-side codec2 mode). Missing -> fallback.
+audio::Mode loadCodecMode(const std::string& dir, audio::Mode fallback);
+bool saveCodecMode(const std::string& dir, audio::Mode m);
+std::optional<audio::Mode> parseCodecMode(const std::string& text);
 
 // Exposed for tests.
 std::string serialize(const Pairing& p);

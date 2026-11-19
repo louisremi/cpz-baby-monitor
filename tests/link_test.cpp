@@ -267,6 +267,44 @@ int main()
         CHECK(!b.link->paired());
     }
 
+    // Link-loss timer (what the parent's LINK LOST banner shows).
+    CHECK(linkLost(5000, 0));  // never heard
+    CHECK(!linkLost(kLinkLostMs, 1));
+    CHECK(linkLost(kLinkLostMs + 2, 1));
+    {
+        Net net;
+        uint64_t now = 0;
+        auto a = make(&net, true, 30, "baby");
+        auto b = make(&net, false, 40, "parent");
+        const auto code = a.link->startShowing(now);
+        b.link->startScanning(now);
+        pump(net, a, b, now, 2000);
+        CHECK(b.link->submitCode(30, code, now));
+        pump(net, a, b, now, 5000);
+        CHECK(a.link->paired() && b.link->paired());
+        // Baby heartbeats every 2 s: link stays up.
+        for (int i = 0; i < 10; ++i) {
+            a.link->sendSecure(wire::Type::Heartbeat, wire::encode(wire::Heartbeat{}));
+            pump(net, a, b, now, 2000);
+            CHECK(!linkLost(now, b.link->lastRxMs()));
+        }
+        // Baby goes silent (out of range / off): lost only after kLinkLostMs.
+        const uint64_t silent_from = now;
+        while (!linkLost(now, b.link->lastRxMs())) pump(net, a, b, now, 100);
+        const uint64_t detected = now - silent_from;
+        std::printf("link loss detected after %llu ms of silence\n", static_cast<unsigned long long>(detected));
+        CHECK(detected > kLinkLostMs - 2000 && detected <= kLinkLostMs + 200);
+        // Packets that fail authentication (wrong key) do not count as alive.
+        crypto::Key wrong{};
+        b.link->onPacket(crypto::seal(wrong, 0, {wire::Type::Heartbeat, b.link->pairing().pair_id, 999999}, {}), 0, 0,
+                         now);
+        CHECK(linkLost(now, b.link->lastRxMs()));
+        // Back in range: the next heartbeat clears it.
+        a.link->sendSecure(wire::Type::Heartbeat, wire::encode(wire::Heartbeat{}));
+        pump(net, a, b, now, 50);
+        CHECK(!linkLost(now, b.link->lastRxMs()));
+    }
+
     std::puts("link_test OK");
     return 0;
 }

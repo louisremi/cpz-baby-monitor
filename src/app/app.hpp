@@ -34,6 +34,7 @@ struct AppStatus {
     float agc_db       = 0;
     bool gate_open     = false;
     bool always_stream = false;
+    audio::Mode codec  = audio::Mode::M1600;  // baby-side encoder mode
     // Parent side
     bool speaker_muted       = false;
     float wave[kWaveColumns] = {};  // ring of 0..1 peaks, newest at wave_head-1
@@ -69,6 +70,9 @@ public:
     void leaveRole();
 
     void toggleAlwaysStream() { status_.always_stream = !status_.always_stream; }
+    // Baby: switch Codec2 1600 <-> 700C (range fallback). Saved per device;
+    // the parent follows the mode byte carried in every audio packet.
+    void toggleCodecMode();
     void toggleMute();
     void adjustVox(float delta_db);
 
@@ -89,6 +93,7 @@ private:
     void applyRegionAction(const RegionHandshake::Action& a);
     void retune(Region r);
     void sendAudioPacket(std::vector<uint8_t> frames);
+    void startEncoder();
 
     Radio radio_;
     Identity identity_;

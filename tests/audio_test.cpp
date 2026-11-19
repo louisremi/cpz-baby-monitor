@@ -149,12 +149,23 @@ int main()
         CHECK(ratio > 0.02 && ratio < 10.0);
     }
     CHECK(Codec(Mode::M1600).bytesPerFrame() == 8);
+    CHECK(Codec(Mode::M700C).bytesPerFrame() == 4);
+    CHECK(otherMode(Mode::M1600) == Mode::M700C && otherMode(Mode::M700C) == Mode::M1600);
+    CHECK(modeFromByte(static_cast<uint8_t>(Mode::M700C)) == Mode::M700C && !modeFromByte(0));
 
     // Air budget for the default profile: 8 frames of 1600 = 87 byte packet.
-    const std::size_t pkt = 7 + 4 + 8 * 8 + 16;
+    const std::size_t pkt = 7 + 5 + 8 * 8 + 16;  // sec header + audio header + 8 frames + tag
     const uint32_t toa    = loraTimeOnAirUs(kProfileSf9, pkt);
     std::printf("SF9/BW500 ToA for %zu bytes: %u us (budget 320000 us)\n", pkt, toa);
     CHECK(toa < 140000);
+    // 700C range fallback: half the codec payload, so less airtime per packet
+    // (a less busy channel, more room for retries) on both bands.
+    const std::size_t pkt700 = 7 + 5 + 8 * 4 + 16;
+    for (const auto* prof : {&kProfileSf9, &kProfileEu}) {
+        const uint32_t t1600 = loraTimeOnAirUs(*prof, pkt), t700 = loraTimeOnAirUs(*prof, pkt700);
+        std::printf("%s: 1600 %u us, 700C %u us per 320 ms packet\n", prof->name, t1600, t700);
+        CHECK(t700 < t1600 * 3 / 4);
+    }
     const uint32_t toa_eu = loraTimeOnAirUs(kProfileEu, pkt);
     std::printf("EU868 SF7/BW250 ToA for %zu bytes: %u us\n", pkt, toa_eu);
     CHECK(toa_eu < 90000);  // ~25% of a 320 ms packet interval

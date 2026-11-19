@@ -177,4 +177,13 @@ private:
 
 const char* pairErrorText(PairError e);
 
+// Link loss as shown to the user: nothing authentic heard from the peer for
+// longer than kLinkLostMs (or never). The baby heartbeats every 2 s while
+// quiet and streams audio while loud, so 10 s means ~5 consecutive losses.
+inline constexpr uint64_t kLinkLostMs = 10000;
+inline bool linkLost(uint64_t now_ms, uint64_t last_rx_ms)
+{
+    return last_rx_ms == 0 || now_ms - last_rx_ms > kLinkLostMs;
+}
+
 }  // namespace cpzbm

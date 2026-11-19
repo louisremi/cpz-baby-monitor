@@ -144,11 +144,39 @@ std::optional<Pairing> deserialize(const std::string& s)
     return p;
 }
 
-std::optional<Region> parseRegion(const std::string& text)
+namespace {
+std::string trimmed(const std::string& text)
 {
     std::string t;
     for (char c : text)
         if (c != '\n' && c != '\r' && c != ' ') t += c;
+    return t;
+}
+}  // namespace
+
+std::optional<audio::Mode> parseCodecMode(const std::string& text)
+{
+    const std::string t = trimmed(text);
+    if (t == "1600") return audio::Mode::M1600;
+    if (t == "700C") return audio::Mode::M700C;
+    return std::nullopt;
+}
+
+audio::Mode loadCodecMode(const std::string& dir, audio::Mode fallback)
+{
+    std::string data;
+    if (!readFile(dir + "/codec.txt", &data)) return fallback;
+    return parseCodecMode(data).value_or(fallback);
+}
+
+bool saveCodecMode(const std::string& dir, audio::Mode m)
+{
+    return writeFileAtomic(dir + "/codec.txt", std::string(audio::modeName(m)) + "\n");
+}
+
+std::optional<Region> parseRegion(const std::string& text)
+{
+    const std::string t = trimmed(text);
     if (t == "EU868") return Region::EU868;
     if (t == "US915") return Region::US915;
     return std::nullopt;
