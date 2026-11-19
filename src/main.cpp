@@ -7,11 +7,14 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include "app/app.hpp"
 #include "app/debug_modes.hpp"
 #include "hal/gps_lvgl_hal.hpp"
 #include "input/gps_keypad.hpp"
+#include "power/status_leds.hpp"
 #include "ui/fonts.hpp"
 #include "ui/ui.hpp"
 
@@ -65,6 +68,20 @@ int main(int argc, char** argv)
     if (!keypad.openDefault()) spdlog::error("no keyboard input device");
 
     ui.start();
+
+    // Night mode: both status LEDs are far too bright in a dark room. The
+    // activity LED goes off and the power LED is left faint; the udev rule in
+    // the package makes them writable for group gpio.
+    cpzbm::StatusLeds leds;
+    const char* leds_env = std::getenv("CPZBM_LEDS");
+    if (!(leds_env && std::strcmp(leds_env, "off") == 0)) {
+        if (const char* percent = std::getenv("CPZBM_LED_POWER_PERCENT")) leds.setPowerPercent(std::atoi(percent));
+        if (leds.available()) {
+            spdlog::info("LEDs: activity off, power {}%", leds.powerPercent());
+            if (!leds.apply()) spdlog::warn("LEDs: could not be dimmed (udev rule installed?)");
+        }
+    }
+
     while (!g_stop && !ui.quitRequested()) {
         keypad.poll();
         const uint64_t now = nowMs();
@@ -81,6 +98,7 @@ int main(int argc, char** argv)
     }
     if (!g_stop) alarm(kShutdownTimeoutSeconds);
     spdlog::info("shutting down");
+    leds.restore();
     ui.shutdown();
     ctl.stop();
     keypad.close();

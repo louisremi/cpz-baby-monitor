@@ -17,7 +17,7 @@ STAGE="$ROOT/build/deb/${PKG}"
 file "$BIN" | grep -q "ARM aarch64" || { echo "not an arm64 binary: $BIN" >&2; exit 1; }
 rm -rf -- "${STAGE:?}"
 install -d "$STAGE/DEBIAN" "$STAGE/usr/share/$PKG/bin" "$STAGE/usr/share/APPLaunch/applications" \
-    "$STAGE/usr/share/APPLaunch/share/images" "$STAGE/usr/share/doc/$PKG"
+    "$STAGE/usr/share/APPLaunch/share/images" "$STAGE/usr/share/doc/$PKG" "$STAGE/usr/lib/udev/rules.d"
 install -m 755 "$BIN" "$STAGE/usr/share/$PKG/bin/$PKG"
 install -m 644 "$ROOT/packaging/deb/images/$PKG.png" "$STAGE/usr/share/APPLaunch/share/images/$PKG.png"
 install -m 644 "$ROOT/LICENSE" "$STAGE/usr/share/doc/$PKG/copyright"
@@ -30,6 +30,36 @@ Terminal=false
 Icon=share/images/$PKG.png
 Type=Application
 EOF
+# The status LEDs are root-owned and far too bright in a dark room: the app
+# switches the activity LED off and leaves the power LED faint. This rule lets
+# the desktop user (group gpio) write the two attributes; the postinst applies
+# it to the LEDs that already exist, so no reboot is needed.
+cat > "$STAGE/usr/lib/udev/rules.d/99-$PKG-leds.rules" <<'EOF'
+# cpz-baby-monitor: allow the desktop user to dim the status LEDs at night.
+SUBSYSTEM=="leds", KERNEL=="ACT", RUN+="/bin/chgrp gpio /sys$devpath/brightness /sys$devpath/trigger", RUN+="/bin/chmod g+w /sys$devpath/brightness /sys$devpath/trigger"
+SUBSYSTEM=="leds", KERNEL=="default-on", RUN+="/bin/chgrp gpio /sys$devpath/brightness /sys$devpath/trigger", RUN+="/bin/chmod g+w /sys$devpath/brightness /sys$devpath/trigger"
+EOF
+cat > "$STAGE/DEBIAN/postinst" <<'EOF'
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=leds --action=change >/dev/null 2>&1 || true
+fi
+exit 0
+EOF
+chmod 755 "$STAGE/DEBIAN/postinst"
+cat > "$STAGE/DEBIAN/prerm" <<'EOF'
+#!/bin/sh
+set -e
+# Leave the LEDs as the system expects them, not in night mode.
+for led in ACT default-on; do
+    [ -w /sys/class/leds/$led/brightness ] || continue
+    echo 255 > /sys/class/leds/$led/brightness 2>/dev/null || true
+done
+exit 0
+EOF
+chmod 755 "$STAGE/DEBIAN/prerm"
 # The Cap LoRa package ships the udev rule that lets the gpio group switch
 # the Cap's 5 V rail; codec2/sodium are linked dynamically.
 cat > "$STAGE/DEBIAN/control" <<EOF

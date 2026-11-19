@@ -30,6 +30,7 @@ add_library(cpzbm_core STATIC
     src/store/store.cpp
     src/audio/codec.cpp
     src/power/display_power.cpp
+    src/power/status_leds.cpp
     src/net/wifi_radio.cpp
 )
 target_include_directories(cpzbm_core PUBLIC src)

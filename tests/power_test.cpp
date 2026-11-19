@@ -13,6 +13,7 @@
 #include "net/wifi_radio.hpp"
 #include "power/display_power.hpp"
 #include "power/screen_power.hpp"
+#include "power/status_leds.hpp"
 #include "test_support.hpp"
 
 using namespace cpzbm;
@@ -35,6 +36,21 @@ std::string makeFakeBacklight(int max, int level)
         f << level << "\n";
     }
     return dir;
+}
+
+void writeFile(const std::string& path, const std::string& text)
+{
+    std::ofstream f(path, std::ios::trunc);
+    f << text;
+    CHECK(static_cast<bool>(f));
+}
+
+std::string readFile(const std::string& path)
+{
+    std::ifstream f(path);
+    std::string text;
+    std::getline(f, text);
+    return text;
 }
 
 int readBacklight(const std::string& dir)
@@ -105,6 +121,65 @@ void displayPowerTests()
     for (const auto& entry : std::filesystem::directory_iterator("/tmp")) {
         if (entry.path().filename().string().rfind("cpzbm-power-", 0) == 0) std::filesystem::remove_all(entry.path());
     }
+}
+
+// The two status LEDs: binary activity LED plus a PWM power LED.
+void statusLedTests()
+{
+    const std::string root = makeFakeBacklight(1, 0) + "-leds";  // fresh temp name
+    std::filesystem::create_directories(root + "/ACT");
+    std::filesystem::create_directories(root + "/default-on");
+    writeFile(root + "/ACT/max_brightness", "1\n");
+    writeFile(root + "/ACT/brightness", "1\n");
+    writeFile(root + "/ACT/trigger", "none default rc-feedback [actpwr] timer\n");
+    writeFile(root + "/default-on/max_brightness", "255\n");
+    writeFile(root + "/default-on/brightness", "255\n");
+    writeFile(root + "/default-on/trigger", "none [default-on] timer\n");
+
+    {
+        StatusLeds leds(root);
+        CHECK(leds.available());
+        CHECK(leds.cpuMax() == 1 && leds.powerMax() == 255);
+        CHECK(leds.powerPercent() == 10);
+        CHECK(leds.cpuTrigger() == "actpwr" && leds.powerTrigger() == "default-on");
+        CHECK(leds.apply());
+        CHECK(leds.applied());
+        CHECK(leds.cpuLevel() == 0);
+        CHECK(leds.powerLevel() == 25);  // 10% of 255
+        CHECK(readFile(root + "/ACT/trigger") == "none");
+        CHECK(readFile(root + "/default-on/trigger") == "none");
+        leds.restore();
+        CHECK(!leds.applied());
+        CHECK(leds.cpuLevel() == 1);
+        CHECK(leds.powerLevel() == 255);
+        CHECK(readFile(root + "/ACT/trigger") == "actpwr");
+        CHECK(readFile(root + "/default-on/trigger") == "default-on");
+    }
+
+    // The power level is clamped; 0 turns the LED off, 100 is full.
+    {
+        StatusLeds leds(root);
+        leds.setPowerPercent(0);
+        CHECK(leds.apply());
+        CHECK(leds.powerLevel() == 0);
+        leds.restore();
+        leds.setPowerPercent(140);
+        CHECK(leds.powerPercent() == 100);
+        CHECK(leds.apply());
+        CHECK(leds.powerLevel() == 255);
+        leds.restore();
+        CHECK(leds.powerLevel() == 255);
+    }
+
+    // No LEDs visible to this user: nothing happens, nothing crashes.
+    {
+        StatusLeds none("/tmp/cpzbm-no-such-leds");
+        CHECK(!none.available());
+        CHECK(!none.apply());
+        none.restore();
+    }
+
+    std::filesystem::remove_all(root);
 }
 
 void screenPolicyTests()
@@ -225,6 +300,7 @@ void wifiRadioTests()
 int main()
 {
     displayPowerTests();
+    statusLedTests();
     screenPolicyTests();
     wifiRadioTests();
     std::puts("power_test OK");

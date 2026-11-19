@@ -67,6 +67,7 @@ A monitor is meant to run for hours on the battery, so the app switches off what
 
 - **Screen off.** After 30 s without a key press the backlight is set to 0 and the app stops drawing. The radio and audio threads keep running, so the Parent keeps playing and the Baby keeps streaming. Any key lights the screen again (that press is consumed, it does not also act); media keys — volume, mute, brightness — never wake it. If the launcher's own `DarkTime` darkens the panel first, the app adopts that state rather than fighting it, and it follows the backlight once a second so the screen state is always what the hardware says. `CPZBM_SCREEN_OFF_SECONDS` changes the timeout (default 30, `0` = never) and `CPZBM_BACKLIGHT` points at a different `backlight` sysfs directory.
 - **Wi-Fi off.** Key 9 switches the Wi-Fi radio off while monitoring: an idle associated radio plus Tailscale costs ~145 mW, the largest saving after the backlight. The app turns it back on when it exits, and a toast reports the change once the switch really happened. A detached user service (`cpzbm-wifi-guard`) watches the app and restores the radio if it is killed, so a crash cannot leave the device unreachable. A hard power cut while the radio is off still needs Wi-Fi re-enabled from Settings after the next boot.
+- **Status LEDs.** The activity LED (`/sys/class/leds/ACT`, a plain on/off GPIO) and the power LED (`/sys/class/leds/default-on`, on an M5IOE1 PWM channel) are far too bright in a dark room. While the app runs the activity LED is switched off and the power LED is left at 10% — faint but still visible — and both are restored when it exits. The package ships a udev rule that lets the desktop user (group `gpio`) write them. `CPZBM_LED_POWER_PERCENT` changes the level (`0` = fully off, `100` = full) and `CPZBM_LEDS=off` leaves the LEDs alone.
 - **Volume.** fn+S / fn+D / fn+A keep working as before (the compositor and `wf-panel-pi` handle them). Because our UI covers the panel's volume OSD, the app adds a 25 ms tone at the current volume: 990 Hz up, 660 Hz down, 440 Hz mute. It plays through its own short-lived stream, so it works on the Baby unit too and mixes over the Parent's audio without touching the jitter buffer. The app never grabs the keyboard, which is what keeps these keys alive.
 
 ## Build
@@ -120,6 +121,7 @@ $B --bench-codec
 $B --screen-test         # backlight off/on cycle, then restore
 $B --beep-test           # the three volume-key tones
 $B --wifi-test 10        # Wi-Fi radio off for 10 s, then back on
+$B --led-test 5          # night mode for the status LEDs, then restore
 ```
 
 `tools/e2e_driver.py` drives the real app on a device through a virtual uinput keyboard and takes framebuffer screenshots; it is used for automated end-to-end checks.
@@ -133,7 +135,7 @@ src/proto/   wire format, PAKE + AEAD, link state machine, band-switch handshake
 src/audio/   codec2 wrapper, VOX/AGC/jitter buffer, miniaudio I/O
 src/radio/   radio thread + SX1262 bring-up forked from CardputerZero/Cap-LoRa-1262
 src/store/   ~/.config/cpz-baby-monitor/{identity,pairing}.bin (0600, atomic writes)
-src/power/   backlight control and the screen idle policy
+src/power/   backlight, status LEDs and the screen idle policy
 src/net/     Wi-Fi radio switch and its crash guard
 src/ui/      320x170 LVGL screens; DejaVu Sans loaded at runtime (Montserrat fallback)
 src/app/     controller (role pipelines) and debug modes

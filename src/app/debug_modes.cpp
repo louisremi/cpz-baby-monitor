@@ -14,6 +14,7 @@
 #include "audio/dsp.hpp"
 #include "net/wifi_radio.hpp"
 #include "power/display_power.hpp"
+#include "power/status_leds.hpp"
 #include "radio/radio.hpp"
 
 namespace cpzbm {
@@ -247,6 +248,27 @@ int wifiTest(int seconds)
     return wifi->enabled() ? 0 : 3;
 }
 
+// Status LEDs: activity off, power faint, then back as they were.
+int ledTest(int seconds)
+{
+    StatusLeds leds;
+    if (!leds.available()) {
+        std::fprintf(stderr, "leds: not writable (udev rule missing?)\n");
+        return 1;
+    }
+    std::printf("leds: cpu %d/%d (trigger %s), power %d/%d (trigger %s) -> cpu off, power %d%%\n", leds.cpuLevel(),
+                leds.cpuMax(), leds.cpuTrigger().c_str(), leds.powerLevel(), leds.powerMax(),
+                leds.powerTrigger().c_str(), leds.powerPercent());
+    if (!leds.apply()) {
+        std::fprintf(stderr, "leds: could not change them\n");
+        return 2;
+    }
+    for (int i = 0; i < seconds; ++i) sleep(1);
+    leds.restore();
+    std::puts("leds: restored");
+    return 0;
+}
+
 int argInt(int argc, char** argv, int i, int def) { return i < argc ? std::atoi(argv[i]) : def; }
 
 }  // namespace
@@ -264,6 +286,7 @@ int runDebugMode(int argc, char** argv, const volatile std::sig_atomic_t* stop)
     if (m == "--screen-test") return screenTest();
     if (m == "--beep-test") return beepTest();
     if (m == "--wifi-test") return wifiTest(argInt(argc, argv, 2, 10));
+    if (m == "--led-test") return ledTest(argInt(argc, argv, 2, 5));
     if (m == "--version") {
         std::printf("cpz-baby-monitor %s\n", CPZBM_VERSION);
         return 0;

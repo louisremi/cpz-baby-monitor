@@ -8,6 +8,7 @@
 //   --bench-codec      codec2 encode+decode CPU cost
 //   --screen-test      cycle the backlight off and back on
 //   --wifi-test [s]    switch the Wi-Fi radio off for s seconds, then back on
+//   --led-test [s]     switch the status LEDs to night mode for s seconds
 //   --beep-test        play the three volume-key confirmation tones
 
 #include <csignal>
