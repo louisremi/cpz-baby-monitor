@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(cpz-baby-monitor VERSION 0.0.1 LANGUAGES C CXX ASM)
 
+# Version stamped into the binary, the .deb and `--version`. CI overrides it
+# from the release tag (v1.2.3 -> 1.2.3) so a release and its package agree.
+set(CPZBM_VERSION "${PROJECT_VERSION}" CACHE STRING "Application/package version")
+
 # CPZBM_DEVICE=ON  : full app for the CardputerZero (fbdev, SX1262, audio)
 # CPZBM_DEVICE=OFF : hardware-free core library + unit tests (host)
 option(CPZBM_DEVICE "Build the CardputerZero device application" ON)
@@ -110,7 +114,7 @@ add_executable(cpz-baby-monitor
 # The SX1262 facade shares pw::span with the C++20 pigweed library.
 set_target_properties(cpz-baby-monitor PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 target_include_directories(cpz-baby-monitor PRIVATE src "${DEPS}/miniaudio")
-target_compile_definitions(cpz-baby-monitor PRIVATE CPZBM_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(cpz-baby-monitor PRIVATE CPZBM_VERSION="${CPZBM_VERSION}")
 target_compile_options(cpz-baby-monitor PRIVATE ${WARN})
 # miniaudio is a single-header library compiled into audio_io.cpp.
 set_source_files_properties(src/audio/audio_io.cpp PROPERTIES COMPILE_OPTIONS "-Wno-pedantic;-Wno-unused-parameter;-Wno-missing-field-initializers")

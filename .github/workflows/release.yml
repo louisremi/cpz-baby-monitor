@@ -1,0 +1,110 @@
+name: release
+
+# Build the CardputerZero package when a GitHub release is published
+# (Releases -> Draft a new release -> tag vX.Y.Z -> Publish), and attach the
+# arm64 .deb + checksums to it. Can also be run by hand to check a build
+# without cutting a release.
+#
+# Note: only the `published` action triggers this. Draft releases do not, and
+# neither do releases created by another workflow using GITHUB_TOKEN (events
+# from GITHUB_TOKEN do not start workflows), so publish the release from the UI
+# or with `gh release create` from a user token.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp the build with (X.Y.Z); defaults to 0.0.0-dev"
+        required: false
+        default: ""
+
+permissions:
+  contents: write # needed to upload assets to the release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: arm64 .deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name }}
+          INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT}" == "release" ]]; then
+            version="${TAG#v}"
+            if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]]; then
+              echo "::error::release tag '${TAG}' is not vX.Y.Z; tag the release with a version"
+              exit 1
+            fi
+          elif [[ -n "${INPUT}" ]]; then
+            version="${INPUT#v}"
+            if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]]; then
+              echo "::error::input '${INPUT}' is not X.Y.Z"
+              exit 1
+            fi
+          else
+            version="0.0.0-dev"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Building version ${version}"
+
+      - name: Cache pinned dependencies
+        uses: actions/cache@v4
+        with:
+          path: dependencies
+          key: deps-${{ hashFiles('repos.json') }}
+
+      - name: Fetch pinned dependencies
+        run: scripts/fetch_deps.sh
+
+      - name: Build the cross-compilation image
+        run: docker build -t cpzbm-build packaging/docker
+
+      - name: Unit tests, arm64 build and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker run --rm \
+            -v "${PWD}:/src" -w /src \
+            -e CPZBM_VERSION_OVERRIDE="${VERSION}" \
+            cpzbm-build bash scripts/ci_build.sh
+
+      - name: Sanity-check the package
+        run: |
+          set -euo pipefail
+          deb="$(ls dist/cpz-baby-monitor_*.deb)"
+          dpkg-deb -I "${deb}" | grep -qx " Version: ${{ steps.version.outputs.version }}-1" ||
+            { echo "::error::.deb version does not match the release"; exit 1; }
+          dpkg-deb -c "${deb}" | grep -q ./usr/share/APPLaunch/applications/cpz-baby-monitor.desktop
+          dpkg-deb -c "${deb}" | grep -q ./usr/share/cpz-baby-monitor/bin/cpz-baby-monitor
+          "$(command -v dpkg-deb)" --info "${deb}" | sed -n '/Depends/p'
+          echo "OK: ${deb}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpz-baby-monitor-${{ steps.version.outputs.version }}-arm64
+          path: |
+            dist/*.deb
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Attach the package to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "${TAG}" dist/*.deb dist/SHA256SUMS --clobber

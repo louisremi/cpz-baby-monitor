@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Stage and build the arm64 .deb.  Usage: build_deb.sh <binary> <outdir>
+# Stage and build the arm64 .deb.
+# Usage: build_deb.sh <binary> <outdir> [version]   (version also via $VERSION)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="${1:?binary}"
 OUT="${2:?outdir}"
 PKG=cpz-baby-monitor
-VERSION="$(sed -n 's/^project(cpz-baby-monitor VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt")"
+VERSION="${3:-${VERSION:-}}"
+if [[ -z "${VERSION}" ]]; then
+    VERSION="$(sed -n 's/^project(cpz-baby-monitor VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt")"
+fi
+[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "invalid version: ${VERSION}" >&2; exit 1; }
 REV=1
 STAGE="$ROOT/build/deb/${PKG}"
 
