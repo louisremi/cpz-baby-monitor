@@ -66,6 +66,29 @@ scripts/deploy.sh 100.104.185.112 100.100.188.11
 
 `remote_build.sh` rsyncs the source to the Docker host (`CPZBM_BUILD_HOST`, default `192.168.1.60`) and runs the build there.
 
+## Releases and CI
+
+Package builds are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml). Publish a GitHub release tagged **`vX.Y.Z`** and the workflow:
+
+1. runs the host unit tests,
+2. cross-builds the arm64 binary in the same Debian trixie image used locally,
+3. builds `cpz-baby-monitor_X.Y.Z-1_arm64.deb`, stamped with the tag as its version,
+4. attaches the `.deb` and its `SHA256SUMS` to the release.
+
+Only **published** releases trigger it: drafts don't, and neither do releases created by another workflow with `GITHUB_TOKEN` (GitHub does not raise events for `GITHUB_TOKEN`). Publish from the Releases UI or with `gh release create` using your own token.
+
+To check a build without cutting a release, run the workflow manually (**Actions → release → Run workflow**); it uploads the `.deb` as a build artifact and touches no release.
+
+### Install a released package
+
+```bash
+scp cpz-baby-monitor_X.Y.Z-1_arm64.deb root@cardputerzero0:/tmp/
+ssh root@cardputerzero0 'dpkg -i /tmp/cpz-baby-monitor_*.deb'
+ssh root@cardputerzero0 'su louisremi -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart APPLaunch.service"'
+```
+
+`dpkg -i` fails if a dependency is missing; `apt install -f` fixes that up. The desktop entry appears in the launcher as **BabyMon**.
+
 ## Headless diagnostics (over SSH, as the desktop user)
 
 Close BabyMon and the stock LoRa app first: only one process can own the radio.
