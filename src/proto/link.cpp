@@ -33,8 +33,18 @@ Link::Link(Identity self, SendFn send, PersistFn persist)
 
 Pairing Link::resumeCounters(Pairing p)
 {
+    // tx may have advanced by up to a stride since the last save: skip ahead
+    // so a nonce is never reused. rx is NOT skipped: a peer that did not
+    // restart is still counting from where we last heard it, and skipping
+    // would drop its next packets. rx is instead saved every kRxSaveStride and
+    // on clean shutdown (flush()), so only a crash leaves a small replay window.
     p.tx_counter += kCounterStride;
     return p;
+}
+
+void Link::flush()
+{
+    if (paired_ && (pairing_.tx_counter != persisted_tx_ || pairing_.rx_counter != persisted_rx_)) persist();
 }
 
 void Link::restore(const Pairing& p)
@@ -131,7 +141,7 @@ void Link::fail(PairError e)
 
 // A handshake attempt on the showing side did not complete. Each attempt is
 // one online guess of the code, so after kMaxFailedAttempts the code changes.
-void Link::failA(uint64_t now_ms)
+void Link::abandonHandshake(uint64_t now_ms)
 {
     ++failed_attempts_;
     cached_resp_.clear();
@@ -244,7 +254,7 @@ void Link::handlePairing(const wire::Bytes& pkt, wire::Type type, float rssi, ui
             }
             if (phase_ != PairPhase::AwaitConfirm || c->from != pending_peer_) return;
             if (!pake_.verifyPeerTag(c->tag)) {
-                failA(now_ms);
+                abandonHandshake(now_ms);
                 return;
             }
             becomePaired(pake_, c->from, pending_name_, now_ms);
@@ -254,7 +264,7 @@ void Link::handlePairing(const wire::Bytes& pkt, wire::Type type, float rssi, ui
         case wire::Type::PairNack: {
             auto n = wire::decodePairNack(pkt);
             if (!n || n->to != self_.dev_id) return;
-            if (phase_ == PairPhase::AwaitConfirm && n->from == pending_peer_) failA(now_ms);
+            if (phase_ == PairPhase::AwaitConfirm && n->from == pending_peer_) abandonHandshake(now_ms);
             return;
         }
         default:
@@ -299,7 +309,7 @@ void Link::handleSecure(const wire::Bytes& pkt, float rssi, float snr, uint64_t 
     }
     if (opened->header.counter <= pairing_.rx_counter) return;  // replay
     pairing_.rx_counter = opened->header.counter;
-    if (pairing_.rx_counter - persisted_rx_ >= kCounterStride) persist();
+    if (pairing_.rx_counter - persisted_rx_ >= kRxSaveStride) persist();
     last_rx_ms_ = now_ms;
     last_rssi_  = rssi;
     last_snr_   = snr;
@@ -323,14 +333,9 @@ void Link::handleSecure(const wire::Bytes& pkt, float rssi, float snr, uint64_t 
                 role_pending_ = false;
             return;
         }
-        case wire::Type::Unpair: {
-            paired_ = false;
-            pairing_ = Pairing{};
-            phase_   = PairPhase::Idle;
-            if (persist_) persist_(pairing_);
-            emit(LinkEvent(LinkEvent::Kind::Unpaired));
+        case wire::Type::Unpair:
+            forgetPairing();
             return;
-        }
         default: {
             LinkEvent e(LinkEvent::Kind::Message);
             e.type = opened->header.type;
@@ -361,10 +366,16 @@ void Link::unpair()
     // unpairs there too.
     sendSecure(wire::Type::Unpair, {});
     sendSecure(wire::Type::Unpair, {});
-    paired_  = false;
-    pairing_ = Pairing{};
-    phase_   = PairPhase::Idle;
-    if (persist_) persist_(pairing_);
+    forgetPairing();
+}
+
+void Link::forgetPairing()
+{
+    paired_       = false;
+    pairing_      = Pairing{};
+    phase_        = PairPhase::Idle;
+    role_pending_ = false;
+    if (persist_) persist_(pairing_);  // peer_id 0: the store deletes the file
     emit(LinkEvent(LinkEvent::Kind::Unpaired));
 }
 
@@ -387,7 +398,7 @@ void Link::tick(uint64_t now_ms)
             if (now_ms >= next_tx_ms_) beacon(now_ms);
             break;
         case PairPhase::AwaitConfirm:
-            if (now_ms >= phase_deadline_) failA(now_ms);
+            if (now_ms >= phase_deadline_) abandonHandshake(now_ms);
             break;
         case PairPhase::Requesting:
         case PairPhase::Confirming:

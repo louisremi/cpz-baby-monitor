@@ -24,25 +24,18 @@ Radio::~Radio() { stop(); }
 bool Radio::start(const LinkProfile& profile)
 {
     if (running_) return true;
-    profile_ = profile;
-    impl_    = new Impl();
-    cap_lora::RadioConfig cfg;
-    cfg.frequency_mhz    = profile.frequency_mhz;
-    cfg.bandwidth_khz    = profile.bandwidth_khz;
-    cfg.spreading_factor = profile.spreading_factor;
-    cfg.coding_rate      = profile.coding_rate;
-    cfg.sync_word        = profile.sync_word;
-    cfg.output_power_dbm = profile.power_dbm;
-    cfg.preamble         = profile.preamble;
-    impl_->lora.set_config(cfg);
+    // A previous run may have ended on its own (re-init failure); reap it so
+    // the thread object is not joinable and the hardware is released.
+    stop();
+    impl_ = new Impl();
+    impl_->lora.set_config(profile);
     if (!impl_->lora.initialize()) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        error_ = "SX1262 init failed (Cap LoRa attached? another LoRa app running?)";
-        spdlog::error("Radio: {}", error_);
+        setError("SX1262 init failed (Cap LoRa attached? another LoRa app running?)");
         delete impl_;
         impl_ = nullptr;
         return false;
     }
+    setError("");
     spdlog::info("Radio: up, profile={} {:.1f} MHz BW{:.0f} SF{} CR4/{} {} dBm", profile.name, profile.frequency_mhz,
                  profile.bandwidth_khz, profile.spreading_factor, profile.coding_rate, profile.power_dbm);
     stop_    = false;
@@ -70,6 +63,13 @@ std::string Radio::error() const
     return error_;
 }
 
+void Radio::setError(const std::string& e)
+{
+    if (!e.empty()) spdlog::error("Radio: {}", e);
+    std::lock_guard<std::mutex> lock(mutex_);
+    error_ = e;
+}
+
 void Radio::send(std::vector<uint8_t> bytes)
 {
     if (bytes.empty() || bytes.size() > 255) return;
@@ -93,15 +93,15 @@ bool Radio::receive(RxPacket* out)
 RadioStats Radio::stats() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return stats_;
+    RadioStats s = stats_;
+    s.error      = error_;
+    return s;
 }
-
-uint32_t Radio::airtimeUs(std::size_t length) const { return loraTimeOnAirUs(profile_, length); }
 
 bool Radio::txBusy() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return tx_inflight_.load() || !tx_queue_.empty();
+    return tx_inflight_ || !tx_queue_.empty();
 }
 
 void Radio::threadMain()
@@ -119,8 +119,6 @@ void Radio::threadMain()
             std::lock_guard<std::mutex> lock(mutex_);
             if (rx_queue_.size() >= kMaxRxQueue) rx_queue_.pop_front();
             ++stats_.rx;
-            stats_.last_rssi = pkt.rssi;
-            stats_.last_snr  = pkt.snr;
             rx_queue_.push_back(std::move(pkt));
         }
         const bool in_tx = lora.tx_in_progress();
@@ -135,7 +133,9 @@ void Radio::threadMain()
             lora.shutdown();
             lora.clear_stop();
             if (!lora.initialize()) {
-                spdlog::error("Radio: re-init failed");
+                // stop()/start() (or the destructor) joins this thread and
+                // releases the hardware; the controller sees running()==false.
+                setError("SX1262 re-init failed after TX timeout");
                 running_ = false;
                 return;
             }
@@ -158,9 +158,8 @@ void Radio::threadMain()
             if (!next.empty()) {
                 auto r = lora.msg_send(std::string(next.begin(), next.end()));
                 if (r.ok()) {
-                    was_tx       = true;
-                    tx_inflight_ = true;
-                    tx_start     = std::chrono::steady_clock::now();
+                    was_tx   = true;
+                    tx_start = std::chrono::steady_clock::now();
                 } else {
                     std::lock_guard<std::mutex> lock(mutex_);
                     ++stats_.tx_dropped;

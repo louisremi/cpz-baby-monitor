@@ -6,8 +6,16 @@
     "summary": "Wi-Fi-free baby monitor over LoRa for two CardputerZero",
     "description": "Pair two CardputerZero devices fitted with the Cap LoRa-1262 by typing a 6-digit code. One device sits next to the baby and streams Codec2-compressed sound over encrypted LoRa when it hears something; the other plays it and shows a live waveform. No Wi-Fi or phone needed.",
     "icon": "packaging/deb/images/cpz-baby-monitor.png",
-    "screenshots": [],
-    "categories": ["Radio & Comms", "Lifestyle"],
+    "screenshots": [
+      "store/screenshots/pair.png",
+      "store/screenshots/home.png",
+      "store/screenshots/baby.png",
+      "store/screenshots/parent.png"
+    ],
+    "categories": [
+      "Radio & Comms",
+      "Lifestyle"
+    ],
     "permissions": {
       "camera": false,
       "microphone": true,
@@ -17,7 +25,9 @@
       "background_service": false,
       "external_display": false
     },
-    "author": { "display_name": "louisremi" },
+    "author": {
+      "display_name": "louisremi"
+    },
     "license": "MIT",
     "share_code": "BABY"
   }

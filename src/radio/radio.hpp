@@ -26,8 +26,7 @@ struct RadioStats {
     uint64_t tx_ok      = 0;
     uint64_t tx_dropped = 0;
     uint64_t rx         = 0;
-    float last_rssi     = 0.0f;
-    float last_snr      = 0.0f;
+    std::string error;  // last hardware error, empty when healthy
 };
 
 class Radio {
@@ -38,7 +37,9 @@ public:
     Radio& operator=(const Radio&) = delete;
 
     // Powers the Cap and starts the radio thread. Returns false (with
-    // error()) if the hardware could not be initialized.
+    // error()) if the hardware could not be initialized. running() turns
+    // false if the thread later gives up (failed re-init); start() may then
+    // be called again.
     bool start(const LinkProfile& profile);
     void stop();
     bool running() const { return running_.load(); }
@@ -49,14 +50,13 @@ public:
     void send(std::vector<uint8_t> bytes);
     bool receive(RxPacket* out);
     RadioStats stats() const;
-    // Microseconds the transmitter is busy for a packet of this length.
-    uint32_t airtimeUs(std::size_t length) const;
     // True while the radio has queued or in-flight transmissions.
     bool txBusy() const;
 
 private:
     struct Impl;
     void threadMain();
+    void setError(const std::string& e);
 
     Impl* impl_ = nullptr;
     std::thread thread_;
@@ -67,8 +67,7 @@ private:
     std::deque<RxPacket> rx_queue_;
     RadioStats stats_;
     std::string error_;
-    LinkProfile profile_;
-    std::atomic<bool> tx_inflight_{false};
+    bool tx_inflight_ = false;  // guarded by mutex_
 };
 
 }  // namespace cpzbm

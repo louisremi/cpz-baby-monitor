@@ -50,7 +50,7 @@ Close BabyMon and the stock LoRa app first: only one process can own the radio.
 B=/usr/share/cpz-baby-monitor/bin/cpz-baby-monitor
 $B --radio-listen        # on device 1 (echoes pings)
 $B --radio-ping 20       # on device 2: RTT, RSSI/SNR both ways
-# prefix both with CPZBM_PROFILE=eu (or sf7) to test another profile
+# prefix both with CPZBM_PROFILE=eu to test the EU868 profile
 $B --mic-test 10         # mic level meter (needs XDG_RUNTIME_DIR for pipewire-pulse)
 $B --codec-loop 15       # mic -> codec2 -> speaker
 $B --bench-codec
@@ -61,11 +61,11 @@ $B --bench-codec
 ## Layout
 
 ```
-src/proto/   wire format, PAKE + AEAD, link state machine   (host-tested)
+src/proto/   wire format, PAKE + AEAD, link state machine, band-switch handshake   (host-tested)
 src/audio/   codec2 wrapper, VOX/AGC/jitter buffer, miniaudio I/O
 src/radio/   radio thread + SX1262 bring-up forked from CardputerZero/Cap-LoRa-1262
 src/store/   ~/.config/cpz-baby-monitor/{identity,pairing}.bin (0600, atomic writes)
-src/ui/      320x170 LVGL screens
+src/ui/      320x170 LVGL screens; DejaVu Sans loaded at runtime (Montserrat fallback)
 src/app/     controller (role pipelines) and debug modes
 ```
 
@@ -73,4 +73,4 @@ src/app/     controller (role pipelines) and debug modes
 
 - The built-in mic is quiet (about −84 dBFS in a quiet room). A software AGC of up to +40 dB and a −65 dBFS VOX default compensate, but the VOX threshold may need tuning on site.
 - The app runs in the foreground only, and the screen stays on (no dimming yet).
-- Store screenshots and submission are not done yet.
+- Not intended for store submission (see `PUBLISH.md`): the EU868 profile exceeds the sub-band's 10% duty cycle while streaming.

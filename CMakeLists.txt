@@ -31,7 +31,7 @@ target_compile_options(cpzbm_core PRIVATE ${WARN})
 target_link_libraries(cpzbm_core PUBLIC PkgConfig::SODIUM PkgConfig::CODEC2)
 
 if(BUILD_TESTING)
-    foreach(t wire crypto link audio)
+    foreach(t wire crypto link audio region)
         add_executable(${t}_test tests/${t}_test.cpp)
         target_include_directories(${t}_test PRIVATE tests)
         target_compile_options(${t}_test PRIVATE ${WARN})
@@ -99,6 +99,7 @@ add_executable(cpz-baby-monitor
     src/app/app.cpp
     src/app/debug_modes.cpp
     src/ui/ui.cpp
+    src/ui/fonts.cpp
     src/hal/gps_lvgl_hal.cpp
     src/input/gps_keypad.cpp
     src/radio/radio.cpp

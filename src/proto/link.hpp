@@ -79,9 +79,13 @@ public:
     using SendFn = std::function<void(wire::Bytes)>;
     using PersistFn = std::function<void(const Pairing&)>;
 
-    // Counters are persisted at most every kCounterStride packets; on load the
-    // tx counter jumps forward by the stride so a crash never reuses a nonce.
+    // The tx counter is persisted every kCounterStride packets and jumps
+    // forward by the stride on load, so a crash never reuses a nonce. The rx
+    // counter is persisted every kRxSaveStride packets (~10 s of audio) and on
+    // flush(): after a crash at most kRxSaveStride-1 old packets could be
+    // replayed; after a clean exit, none.
     static constexpr uint32_t kCounterStride = 256;
+    static constexpr uint32_t kRxSaveStride  = 32;
 
     Link(Identity self, SendFn send, PersistFn persist);
 
@@ -89,6 +93,8 @@ public:
     // resumeCounters()).
     void restore(const Pairing& p);
     static Pairing resumeCounters(Pairing p);
+    // Persist counters now (call on shutdown).
+    void flush();
 
     void tick(uint64_t now_ms);
     void onPacket(const wire::Bytes& pkt, float rssi, float snr, uint64_t now_ms);
@@ -121,7 +127,10 @@ private:
     void handlePairing(const wire::Bytes& pkt, wire::Type type, float rssi, uint64_t now_ms);
     void handleSecure(const wire::Bytes& pkt, float rssi, float snr, uint64_t now_ms);
     void becomePaired(const crypto::PakeSession& pake, uint32_t peer_id, const wire::Name& peer_name, uint64_t now_ms);
-    void failA(uint64_t now_ms);
+    // Showing side: the current handshake attempt failed (wrong code,
+    // timeout or NACK). Counts as one online guess of the code.
+    void abandonHandshake(uint64_t now_ms);
+    void forgetPairing();
     void fail(PairError e);
     void newCode(uint64_t now_ms);
     uint8_t myDirection() const;

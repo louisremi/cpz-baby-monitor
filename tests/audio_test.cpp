@@ -48,26 +48,70 @@ int main()
         CHECK(peak(q.data(), q.size()) <= 0.6f);
     }
 
+    // Packetizer: pre-roll is sent when the gate opens at ANY frame of a
+    // packet (regression: it used to be lost 7 times out of 8).
+    for (int open_at = 0; open_at < 8; ++open_at) {
+        Packetizer pk(8, 1);
+        std::vector<std::vector<uint8_t>> sent;
+        uint8_t n = 0;
+        for (int f = 0; f < 16; ++f) {  // two closed packets -> pre-roll = frames 8..15
+            const uint8_t b = n++;
+            pk.push(&b, false, &sent);
+        }
+        CHECK(sent.empty());
+        for (int f = 0; f < 8; ++f) {
+            const uint8_t b = n++;
+            pk.push(&b, f >= open_at, &sent);
+        }
+        CHECK(sent.size() == 2);                        // pre-roll + the packet the sound started in
+        CHECK(sent[0].size() == 8 && sent[0][0] == 8);  // the previous 320 ms
+        CHECK(sent[1].size() == 8 && sent[1][0] == 16);
+    }
+    {
+        // Gate stays open: one packet per 8 frames, no duplicate pre-roll.
+        Packetizer pk(8, 1);
+        std::vector<std::vector<uint8_t>> sent;
+        for (int f = 0; f < 32; ++f) {
+            const uint8_t b = static_cast<uint8_t>(f);
+            pk.push(&b, true, &sent);
+        }
+        CHECK(sent.size() == 4);
+    }
+
     // Jitter buffer: reorder, duplicate, gap.
     JitterBuffer jb(2);
     std::vector<int16_t> out;
     bool gap = false;
-    CHECK(jb.push(10, {10}));
+    CHECK(jb.push(1, 10, {10}));
     CHECK(!jb.pop(&out, &gap));  // below depth
-    CHECK(jb.push(12, {12}));
-    CHECK(!jb.push(12, {12}));  // dup
+    CHECK(jb.push(1, 12, {12}));
+    CHECK(!jb.push(1, 12, {12}));  // dup
     CHECK(jb.pop(&out, &gap) && !gap && out[0] == 10);
-    CHECK(jb.push(13, {13}));
+    CHECK(jb.push(1, 13, {13}));
     CHECK(jb.pop(&out, &gap) && gap);  // 11 lost
     CHECK(jb.pop(&out, &gap) && !gap && out[0] == 12);
-    CHECK(!jb.push(11, {11}));  // too late
+    CHECK(!jb.push(1, 11, {11}));  // too late
     CHECK(jb.pop(&out, &gap, true) && out[0] == 13);
     // Sequence wraparound.
     JitterBuffer jw(1);
-    CHECK(jw.push(65535, {1}));
+    CHECK(jw.push(1, 65535, {1}));
     CHECK(jw.pop(&out, &gap) && out[0] == 1);
-    CHECK(jw.push(0, {2}));
+    CHECK(jw.push(1, 0, {2}));
     CHECK(jw.pop(&out, &gap) && !gap && out[0] == 2);
+
+    // Sender restart: new stream id, seq back to 0 -> accepted immediately.
+    {
+        JitterBuffer jr(1);
+        for (uint16_t q = 500; q < 505; ++q) {
+            CHECK(jr.push(1, q, {static_cast<int16_t>(q)}));
+            CHECK(jr.pop(&out, &gap));
+        }
+        CHECK(!jr.push(1, 0, {0}));  // same stream: stale
+        CHECK(jr.push(2, 0, {42}));  // new stream: resync
+        CHECK(jr.pop(&out, &gap) && !gap && out[0] == 42);
+        CHECK(jr.push(2, 1, {43}));
+        CHECK(jr.pop(&out, &gap) && !gap && out[0] == 43);
+    }
 
     // Codec2 round trip.
     for (Mode m : {Mode::M1600, Mode::M700C}) {
@@ -111,7 +155,6 @@ int main()
     const uint32_t toa    = loraTimeOnAirUs(kProfileSf9, pkt);
     std::printf("SF9/BW500 ToA for %zu bytes: %u us (budget 320000 us)\n", pkt, toa);
     CHECK(toa < 140000);
-    CHECK(loraTimeOnAirUs(kProfileSf7, pkt) < 45000);
     const uint32_t toa_eu = loraTimeOnAirUs(kProfileEu, pkt);
     std::printf("EU868 SF7/BW250 ToA for %zu bytes: %u us\n", pkt, toa_eu);
     CHECK(toa_eu < 90000);  // ~25% of a 320 ms packet interval

@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <cstdio>
 #include <random>
 
@@ -205,6 +206,59 @@ int main()
         CHECK(!store::deserialize(s));
         auto resumed = Link::resumeCounters(p);
         CHECK(resumed.tx_counter == p.tx_counter + Link::kCounterStride);
+        CHECK(resumed.rx_counter == p.rx_counter);
+
+        // Restart replay: B persists, A sends 10 packets which an attacker
+        // records, B restarts from its store (clean shutdown -> flush), and
+        // the recording is replayed. Nothing may be accepted.
+        {
+            std::optional<Pairing> b_saved;
+            Link b2(b.id, [](wire::Bytes) {}, [&](const Pairing& pp) { b_saved = pp; });
+            b2.restore(Link::resumeCounters(b.link->pairing()));
+            std::deque<wire::Bytes> recorded;
+            for (int i = 0; i < 10; ++i) {
+                a.link->sendSecure(wire::Type::Heartbeat, wire::encode(wire::Heartbeat{}));
+                recorded.push_back(net.to_b.back());
+                b2.onPacket(net.to_b.back(), 0, 0, now);
+            }
+            net.to_b.clear();
+            LinkEvent ev;
+            int live = 0;
+            while (b2.pollEvent(&ev)) live += ev.kind == LinkEvent::Kind::Message;
+            CHECK(live == 10);
+            b2.flush();  // clean shutdown
+            CHECK(b_saved);
+            Link b3(b.id, [](wire::Bytes) {}, nullptr);
+            b3.restore(Link::resumeCounters(*b_saved));
+            for (auto& r : recorded) b3.onPacket(r, 0, 0, now);
+            int replayed = 0;
+            while (b3.pollEvent(&ev)) replayed += ev.kind == LinkEvent::Kind::Message;
+            CHECK(replayed == 0);
+            // ...while A's next genuine packet is still accepted.
+            a.link->sendSecure(wire::Type::Heartbeat, wire::encode(wire::Heartbeat{}));
+            b3.onPacket(net.to_b.back(), 0, 0, now);
+            net.to_b.clear();
+            int fresh = 0;
+            while (b3.pollEvent(&ev)) fresh += ev.kind == LinkEvent::Kind::Message;
+            CHECK(fresh == 1);
+            // Crash (no flush): at most kRxSaveStride-1 recorded packets replay.
+            std::optional<Pairing> c_saved;
+            Link b4(b.id, [](wire::Bytes) {}, [&](const Pairing& pp) { c_saved = pp; });
+            b4.restore(Link::resumeCounters(b3.pairing()));
+            std::deque<wire::Bytes> rec2;
+            for (uint32_t i = 0; i < 2 * Link::kRxSaveStride; ++i) {
+                a.link->sendSecure(wire::Type::Heartbeat, wire::encode(wire::Heartbeat{}));
+                rec2.push_back(net.to_b.back());
+                b4.onPacket(net.to_b.back(), 0, 0, now);
+            }
+            net.to_b.clear();
+            Link b5(b.id, [](wire::Bytes) {}, nullptr);
+            b5.restore(Link::resumeCounters(*c_saved));
+            for (auto& r : rec2) b5.onPacket(r, 0, 0, now);
+            int crash_replayed = 0;
+            while (b5.pollEvent(&ev)) crash_replayed += ev.kind == LinkEvent::Kind::Message;
+            CHECK(crash_replayed < static_cast<int>(Link::kRxSaveStride));
+        }
 
         // Unpair propagates.
         a.link->unpair();
@@ -212,10 +266,6 @@ int main()
         CHECK(!a.link->paired());
         CHECK(!b.link->paired());
     }
-
-    CHECK(store::parseRegion("EU868\n") == Region::EU868);
-    CHECK(store::parseRegion("US915") == Region::US915);
-    CHECK(!store::parseRegion("eu"));
 
     std::puts("link_test OK");
     return 0;

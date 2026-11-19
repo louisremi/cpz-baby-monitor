@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace cpzbm {
 
@@ -32,10 +33,17 @@ struct LinkProfile {
 };
 
 inline constexpr LinkProfile kProfileSf9{};
-inline constexpr LinkProfile kProfileSf7{"sf7", 915.0f, 500.0f, 7, 5, 0x12, 22, 8};
 inline constexpr LinkProfile kProfileEu{"eu868", 869.525f, 250.0f, 7, 5, 0x12, 22, 8};
 
 enum class Region : uint8_t { US915 = 0, EU868 = 1 };
+
+// Decodes a Region from its on-air byte; nullopt for unknown values.
+inline std::optional<Region> regionFromByte(uint8_t b)
+{
+    if (b == static_cast<uint8_t>(Region::US915)) return Region::US915;
+    if (b == static_cast<uint8_t>(Region::EU868)) return Region::EU868;
+    return std::nullopt;
+}
 
 inline const LinkProfile& profileFor(Region r) { return r == Region::EU868 ? kProfileEu : kProfileSf9; }
 inline const char* regionName(Region r) { return r == Region::EU868 ? "EU868" : "US915"; }

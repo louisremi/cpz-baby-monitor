@@ -5,9 +5,9 @@
 // via tick(); the radio and audio devices have their own threads behind
 // queues, so tick() never blocks.
 
-#include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -15,11 +15,14 @@
 #include "audio/codec.hpp"
 #include "audio/dsp.hpp"
 #include "proto/link.hpp"
+#include "proto/region_handshake.hpp"
 #include "radio/radio.hpp"
 
 namespace cpzbm {
 
 inline constexpr int kWaveColumns = 300;  // 40 ms per column, 12 s on screen
+// Number of codec frames per AUDIO packet (8 x 40 ms = 320 ms).
+inline constexpr int kFramesPerPacket = 8;
 
 struct AppStatus {
     bool radio_ok = false;
@@ -32,18 +35,18 @@ struct AppStatus {
     bool gate_open     = false;
     bool always_stream = false;
     // Parent side
-    bool speaker_muted   = false;
+    bool speaker_muted       = false;
     float wave[kWaveColumns] = {};  // ring of 0..1 peaks, newest at wave_head-1
-    int wave_head        = 0;
-    int8_t peer_level    = -127;    // last heartbeat level
-    uint8_t peer_battery = 255;
-    bool peer_gate       = false;
+    int wave_head            = 0;
+    int8_t peer_level        = -127;  // last heartbeat level
+    uint8_t peer_battery     = wire::kBatteryUnknown;
+    bool peer_sound          = false;  // audio received recently
     // Common
-    uint64_t now_ms       = 0;
-    uint64_t last_rx_ms   = 0;
+    uint64_t now_ms     = 0;
+    uint64_t last_rx_ms = 0;
     float rssi = 0, snr = 0;
     uint64_t tx_packets = 0, rx_packets = 0, audio_packets = 0, lost_packets = 0;
-    uint8_t battery = 255;
+    uint8_t battery       = wire::kBatteryUnknown;
     Region region         = Region::US915;
     bool region_switching = false;
 };
@@ -64,15 +67,14 @@ public:
     // Activates the role pipeline: Baby = capture/encode/send, Parent = receive/play.
     void enterRole(Role role);
     void leaveRole();
-    Role activeRole() const { return active_role_; }
 
     void toggleAlwaysStream() { status_.always_stream = !status_.always_stream; }
     void toggleMute();
     void adjustVox(float delta_db);
 
-    // Switches the radio band. When paired, the peer is told first (on the
-    // current band) and both devices retune; unpaired, only this device does.
-    void requestRegion(Region r, uint64_t now_ms);
+    // Switches to the other radio band. When paired, the peer is told first
+    // (on the current band) and both devices retune; unpaired, only this one.
+    void toggleRegion(uint64_t now_ms);
 
     // Link events are drained by the controller and re-queued for the UI.
     bool pollUiEvent(LinkEvent* e);
@@ -81,10 +83,12 @@ private:
     void babyTick(uint64_t now_ms);
     void parentTick(uint64_t now_ms);
     void onMessage(const LinkEvent& e, uint64_t now_ms);
+    void onAudio(const wire::Bytes& body, uint64_t now_ms);
     void pushWave(float v);
     void readBattery(uint64_t now_ms);
-    void regionTick(uint64_t now_ms);
-    void applyRegion(Region r);
+    void applyRegionAction(const RegionHandshake::Action& a);
+    void retune(Region r);
+    void sendAudioPacket(std::vector<uint8_t> frames);
 
     Radio radio_;
     Identity identity_;
@@ -93,41 +97,29 @@ private:
     std::vector<LinkEvent> ui_events_;
     AppStatus status_;
     Role active_role_ = Role::None;
+    RegionHandshake region_{Region::US915};
 
     // Baby
     audio::Capture capture_;
     std::unique_ptr<audio::Codec> enc_;
-    audio::VoxGate vox_{-65.0f, 75};
-    audio::Agc agc_;  // 75 blocks = 3 s hangover
-    std::vector<uint8_t> frames_;
-    int nframes_ = 0;
-    std::vector<uint8_t> preroll_;     // last full packet of frames while gate closed
-    uint16_t audio_seq_ = 0;
+    audio::VoxGate vox_{-65.0f, 75};  // 75 blocks = 3 s hangover
+    audio::Agc agc_;
+    std::optional<audio::Packetizer> packetizer_;
+    uint8_t audio_stream_ = 0;  // random per pipeline start (see wire::Audio)
+    uint16_t audio_seq_   = 0;
     uint64_t next_heartbeat_ms_ = 0;
-    float level_peak_ = -100;
+    float level_peak_           = -100;
 
     // Parent
     audio::Playback playback_;
     std::unique_ptr<audio::Codec> dec_;
     audio::JitterBuffer jitter_{2};
-    uint64_t last_audio_ms_    = 0;
+    uint64_t last_audio_ms_     = 0;
     uint64_t next_keepalive_ms_ = 0;
-    uint64_t next_wave_ms_     = 0;
+    uint64_t next_wave_ms_      = 0;
     std::vector<float> pending_wave_;
 
     uint64_t next_battery_ms_ = 0;
-
-    // Region change handshake
-    bool region_req_pending_   = false;  // we asked the peer, awaiting RegionAck
-    Region region_req_         = Region::US915;
-    uint64_t region_next_ms_   = 0;
-    int region_retries_        = 0;
-    bool region_switch_due_    = false;  // peer asked us; retune once our ack is out
-    Region region_switch_to_   = Region::US915;
-    uint64_t region_switch_by_ = 0;
 };
-
-// Number of codec frames per AUDIO packet (8 x 40 ms = 320 ms).
-inline constexpr int kFramesPerPacket = 8;
 
 }  // namespace cpzbm

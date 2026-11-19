@@ -37,7 +37,6 @@ public:
     void stop();
     void write(const int16_t* pcm, std::size_t n);
     void setMuted(bool muted);
-    bool muted() const;
     // Samples queued but not yet played.
     std::size_t queued() const;
     std::string error() const { return error_; }

@@ -79,7 +79,6 @@ public:
         }
         return false;
     }
-    bool open() const { return remaining_ > 0; }
     void setThreshold(float t) { threshold_ = t; }
     float threshold() const { return threshold_; }
 
@@ -87,6 +86,47 @@ private:
     float threshold_;
     int hangover_;
     int remaining_ = 0;
+};
+
+// Groups encoded codec frames into packets and decides what to send, given
+// the VOX gate state per frame:
+//  - while the gate is closed, the last complete packet is kept as pre-roll;
+//  - on the frame where the gate opens, the pre-roll is released first, so
+//    the start of the sound (just before it crossed the threshold) is heard;
+//  - while the gate is open, every complete packet is released.
+// Pure: no I/O, so the gating behaviour is unit-tested.
+class Packetizer {
+public:
+    Packetizer(int frames_per_packet, int bytes_per_frame)
+        : frames_per_packet_(frames_per_packet), bytes_per_frame_(bytes_per_frame)
+    {
+    }
+
+    // Adds one encoded frame. Appends 0..2 packets to `out` (pre-roll first).
+    void push(const uint8_t* frame, bool gate_open, std::vector<std::vector<uint8_t>>* out)
+    {
+        if (gate_open && !was_open_ && !preroll_.empty()) {
+            out->push_back(std::move(preroll_));
+            preroll_.clear();
+        }
+        was_open_ = gate_open;
+        current_.insert(current_.end(), frame, frame + bytes_per_frame_);
+        if (++frames_ < frames_per_packet_) return;
+        if (gate_open)
+            out->push_back(std::move(current_));
+        else
+            preroll_ = std::move(current_);
+        current_.clear();
+        frames_ = 0;
+    }
+
+private:
+    int frames_per_packet_;
+    int bytes_per_frame_;
+    int frames_    = 0;
+    bool was_open_ = false;
+    std::vector<uint8_t> current_;
+    std::vector<uint8_t> preroll_;
 };
 
 // Reorders decoded audio packets by 16-bit sequence number and releases them
@@ -97,15 +137,21 @@ public:
     explicit JitterBuffer(std::size_t depth) : depth_(depth) {}
 
     // Returns false for duplicates / packets older than the play head.
-    bool push(uint16_t seq, std::vector<int16_t> pcm)
+    // `stream` identifies one run of the sender's sequence numbers: a new
+    // value (sender restarted, seq back to 0) resynchronises the buffer.
+    // A jump of more than kMaxGap packets also does, as a safety net.
+    static constexpr int kMaxGap = 64;
+    bool push(uint8_t stream, uint16_t seq, std::vector<int16_t> pcm)
     {
+        if (started_ && stream != stream_) reset();
         if (started_) {
             const int16_t diff = static_cast<int16_t>(seq - next_);
             if (diff < 0) return false;
-            if (diff > 64) reset();  // sender restarted
+            if (diff > kMaxGap) reset();
         }
         if (!started_) {
             next_    = seq;
+            stream_  = stream;
             started_ = true;
         }
         const auto key = static_cast<uint16_t>(seq - next_);
@@ -151,8 +197,9 @@ private:
     }
 
     std::size_t depth_;
-    bool started_  = false;
-    uint16_t next_ = 0;
+    bool started_   = false;
+    uint8_t stream_ = 0;
+    uint16_t next_  = 0;
     std::map<uint16_t, std::vector<int16_t>> pending_;
 };
 

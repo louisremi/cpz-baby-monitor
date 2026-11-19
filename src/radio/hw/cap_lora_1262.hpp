@@ -17,6 +17,7 @@
 #include "pw_status/status.h"
 
 #include "RadioLib.h"
+#include "radio/radio_config.hpp"
 #include "pw_spi_linux/spi.h"
 #include "pw_i2c_linux/initiator.h"
 #include "pw_digital_io/polarity.h"
@@ -54,17 +55,9 @@ inline constexpr float TCXO_VOLTAGE           = 3.0f;
 inline constexpr float CURRENT_LIMIT_MA       = 140.0f;
 inline constexpr uint32_t SPI_SPEED_HZ        = 8000000;
 
-// Modulation parameters, chosen by the application (cpz-baby-monitor) instead
-// of the upstream chat app's fixed EU868/SF12 constants.
-struct RadioConfig {
-    float frequency_mhz      = FREQUENCY_MHZ;
-    float bandwidth_khz      = BANDWIDTH_KHZ;
-    uint8_t spreading_factor = SPREADING_FACTOR;
-    uint8_t coding_rate      = CODING_RATE;
-    uint8_t sync_word        = SYNC_WORD;
-    int8_t output_power_dbm  = OUTPUT_POWER_DBM;
-    uint16_t preamble        = PREAMBLE_SYMBOLS;
-};
+// Modulation parameters are chosen by the application (cpz-baby-monitor, see
+// radio/radio_config.hpp) instead of the upstream chat app's fixed constants.
+using RadioConfig = cpzbm::LinkProfile;
 
 struct LoraInfo {
     int initialized = 0;
@@ -159,11 +152,9 @@ public:
     void start_receive();
     void set_tx_mode(bool enabled);
     void set_config(const RadioConfig& config) { config_ = config; }
-    const RadioConfig& config() const { return config_; }
     bool tx_in_progress() const { return tx_in_progress_; }
     float last_rssi() const { return last_rssi_; }
     float last_snr() const { return last_snr_; }
-    uint32_t time_on_air_us(std::size_t length) const;
 
 private:
     static constexpr std::size_t kMaxTextPayload = MAX_TEXT_PAYLOAD;

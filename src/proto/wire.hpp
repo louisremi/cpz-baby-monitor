@@ -11,6 +11,8 @@
 #include <optional>
 #include <vector>
 
+#include "audio/codec_mode.hpp"
+
 namespace cpzbm::wire {
 
 inline constexpr uint8_t kVersion = 1;
@@ -90,16 +92,21 @@ struct SecHeader {
 
 // Plaintext bodies of encrypted messages.
 struct Audio {
-    uint16_t seq    = 0;
-    uint8_t mode    = 0;  // codec2 mode id (see audio/codec.hpp)
-    uint8_t nframes = 0;
-    Bytes frames;         // nframes * bytes_per_frame
+    // Random per baby-pipeline start. A new value tells the parent that the
+    // sequence numbers restarted, so its jitter buffer must resynchronise.
+    uint8_t stream   = 0;
+    uint16_t seq     = 0;
+    audio::Mode mode = audio::Mode::M1600;
+    uint8_t nframes  = 0;
+    Bytes frames;  // nframes * bytes_per_frame
 };
 
+inline constexpr uint8_t kBatteryUnknown = 255;
+
 struct Heartbeat {
-    int8_t level_dbfs = -127;
-    uint8_t battery   = 255;  // percent, 255 = unknown
-    uint8_t flags     = 0;    // bit0: VOX gate open, bit1: always-stream
+    int8_t level_dbfs  = -127;  // loudest block since the previous heartbeat
+    uint8_t battery    = kBatteryUnknown;  // percent
+    bool always_stream = false;            // baby is in "always stream" test mode
 };
 
 std::optional<Type> peekType(const Bytes& pkt);

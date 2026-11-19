@@ -213,13 +213,6 @@ void Playback::setMuted(bool muted)
     impl_->muted = muted;
 }
 
-bool Playback::muted() const
-{
-    if (!impl_) return false;
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    return impl_->muted;
-}
-
 std::size_t Playback::queued() const
 {
     if (!impl_) return 0;

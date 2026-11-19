@@ -170,10 +170,11 @@ std::optional<SecHeader> decodeSecHeader(const Bytes& pkt)
 Bytes encode(const Audio& m)
 {
     Bytes out;
-    out.reserve(4 + m.frames.size());
+    out.reserve(5 + m.frames.size());
+    out.push_back(m.stream);
     out.push_back(static_cast<uint8_t>(m.seq));
     out.push_back(static_cast<uint8_t>(m.seq >> 8));
-    out.push_back(m.mode);
+    out.push_back(static_cast<uint8_t>(m.mode));
     out.push_back(m.nframes);
     out.insert(out.end(), m.frames.begin(), m.frames.end());
     return out;
@@ -181,19 +182,26 @@ Bytes encode(const Audio& m)
 
 std::optional<Audio> decodeAudio(const Bytes& plain)
 {
-    if (plain.size() < 4) return std::nullopt;
+    if (plain.size() < 5) return std::nullopt;
     Audio m;
-    m.seq     = static_cast<uint16_t>(plain[0] | (plain[1] << 8));
-    m.mode    = plain[2];
-    m.nframes = plain[3];
-    m.frames.assign(plain.begin() + 4, plain.end());
+    m.stream        = plain[0];
+    m.seq           = static_cast<uint16_t>(plain[1] | (plain[2] << 8));
+    const auto mode = audio::modeFromByte(plain[3]);
+    if (!mode) return std::nullopt;
+    m.mode    = *mode;
+    m.nframes = plain[4];
+    m.frames.assign(plain.begin() + 5, plain.end());
     if (m.nframes == 0 || m.frames.empty() || m.frames.size() % m.nframes != 0) return std::nullopt;
     return m;
 }
 
+namespace {
+constexpr uint8_t kHeartbeatAlwaysStream = 0x02;  // bit0 (gate open) retired: heartbeats only flow while quiet
+}  // namespace
+
 Bytes encode(const Heartbeat& m)
 {
-    return {static_cast<uint8_t>(m.level_dbfs), m.battery, m.flags};
+    return {static_cast<uint8_t>(m.level_dbfs), m.battery, m.always_stream ? kHeartbeatAlwaysStream : uint8_t{0}};
 }
 
 std::optional<Heartbeat> decodeHeartbeat(const Bytes& plain)
@@ -202,7 +210,7 @@ std::optional<Heartbeat> decodeHeartbeat(const Bytes& plain)
     Heartbeat m;
     m.level_dbfs = static_cast<int8_t>(plain[0]);
     m.battery    = plain[1];
-    m.flags      = plain[2];
+    m.always_stream = (plain[2] & kHeartbeatAlwaysStream) != 0;
     return m;
 }
 

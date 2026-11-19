@@ -26,7 +26,6 @@ uint64_t nowMs()
 LinkProfile profileFromEnv()
 {
     const char* p = std::getenv("CPZBM_PROFILE");
-    if (p && std::strcmp(p, "sf7") == 0) return kProfileSf7;
     if (p && std::strcmp(p, "eu") == 0) return kProfileEu;
     return kProfileSf9;
 }
@@ -34,7 +33,7 @@ LinkProfile profileFromEnv()
 // Raw radio test packets use a version nibble (0xF) the app ignores.
 constexpr uint8_t kPing = 0xF1, kPong = 0xF2;
 
-int radioPing(int count, const volatile int* stop)
+int radioPing(int count, const volatile std::sig_atomic_t* stop)
 {
     Radio radio;
     const auto prof = profileFromEnv();
@@ -42,7 +41,7 @@ int radioPing(int count, const volatile int* stop)
         std::fprintf(stderr, "radio: %s\n", radio.error().c_str());
         return 1;
     }
-    std::printf("ping: %d packets, 87 bytes, ToA %u us\n", count, radio.airtimeUs(87));
+    std::printf("ping: %d packets, 87 bytes, ToA %u us\n", count, loraTimeOnAirUs(prof, 87));
     int got = 0;
     uint64_t sent_at[256] = {};
     for (int i = 0; i < count && !*stop; ++i) {
@@ -73,7 +72,7 @@ int radioPing(int count, const volatile int* stop)
     return got > 0 ? 0 : 2;
 }
 
-int radioListen(const volatile int* stop)
+int radioListen(const volatile std::sig_atomic_t* stop)
 {
     Radio radio;
     if (!radio.start(profileFromEnv())) {
@@ -100,7 +99,7 @@ int radioListen(const volatile int* stop)
     return 0;
 }
 
-int micTest(int seconds, const volatile int* stop)
+int micTest(int seconds, const volatile std::sig_atomic_t* stop)
 {
     audio::Capture cap;
     if (!cap.start(320)) {
@@ -129,7 +128,7 @@ int micTest(int seconds, const volatile int* stop)
     return blocks > 0 ? 0 : 2;
 }
 
-int codecLoop(int seconds, const volatile int* stop)
+int codecLoop(int seconds, const volatile std::sig_atomic_t* stop)
 {
     audio::Capture cap;
     audio::Playback play;
@@ -183,7 +182,7 @@ int argInt(int argc, char** argv, int i, int def) { return i < argc ? std::atoi(
 
 }  // namespace
 
-int runDebugMode(int argc, char** argv, const volatile int* stop)
+int runDebugMode(int argc, char** argv, const volatile std::sig_atomic_t* stop)
 {
     if (argc < 2) return -1;
     const std::string m = argv[1];

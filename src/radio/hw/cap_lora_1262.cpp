@@ -309,7 +309,7 @@ bool cap_lora::CapLoRa1262::initialize()
         return false;
     }
     if (sx1262_->begin(config_.frequency_mhz, config_.bandwidth_khz, config_.spreading_factor, config_.coding_rate,
-                       config_.sync_word, config_.output_power_dbm, config_.preamble, TCXO_VOLTAGE,
+                       config_.sync_word, config_.power_dbm, config_.preamble, TCXO_VOLTAGE,
                        false) != RADIOLIB_ERR_NONE) {
         shutdown();
         return false;
@@ -428,11 +428,6 @@ void cap_lora::CapLoRa1262::shutdown()
     spi_initiator_.reset();
     gpio_chip_.reset();
     I2cInitiator_.reset();
-}
-
-uint32_t cap_lora::CapLoRa1262::time_on_air_us(std::size_t length) const
-{
-    return sx1262_ ? static_cast<uint32_t>(sx1262_->getTimeOnAir(length)) : 0U;
 }
 
 bool cap_lora::CapLoRa1262::setup() { return initialize(); }

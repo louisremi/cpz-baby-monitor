@@ -26,7 +26,7 @@ public:
     bool quitRequested() const { return quit_; }
 
 private:
-    void go(Screen s);
+    void showScreen(Screen s);
     void build();
     void refresh();
     void buildNavBar(const char* labels[5]);

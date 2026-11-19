@@ -7,16 +7,13 @@
 #include <cstdint>
 #include <vector>
 
+#include "audio/codec_mode.hpp"
+
 struct CODEC2;
 
 namespace cpzbm::audio {
 
 inline constexpr int kSampleRate = 8000;
-
-enum class Mode : uint8_t {
-    M1600 = 2,  // CODEC2_MODE_1600: 40 ms / 64 bits per frame
-    M700C = 8,  // CODEC2_MODE_700C: 40 ms / 28 bits (padded to 4 bytes)
-};
 
 class Codec {
 public:

@@ -37,8 +37,8 @@ Priority: optional
 Depends: libc6 (>= 2.38), libstdc++6, libcodec2-1.2, libsodium23, libpulse0, m5cardputerzero-cap-lora-1262
 Description: LoRa baby monitor for CardputerZero
  Pairs two CardputerZero devices with Cap LoRa-1262 using a 6-digit code.
- The baby unit streams Codec2 audio over encrypted LoRa (US915); the parent
- unit plays it and shows a live waveform.
+ The baby unit streams Codec2 audio over encrypted LoRa (US915 or EU868); the
+ parent unit plays it and shows a live waveform.
 EOF
 mkdir -p "$OUT"
 dpkg-deb --root-owner-group -Zxz -b "$STAGE" "$OUT/${PKG}_${VERSION}-${REV}_arm64.deb" >/dev/null

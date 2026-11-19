@@ -12,6 +12,7 @@
 #include "app/debug_modes.hpp"
 #include "hal/gps_lvgl_hal.hpp"
 #include "input/gps_keypad.hpp"
+#include "ui/fonts.hpp"
 #include "ui/ui.hpp"
 
 namespace {
@@ -47,12 +48,13 @@ int main(int argc, char** argv)
     std::signal(SIGTERM, onSignal);
     std::signal(SIGALRM, onAlarm);
 
-    const int dbg = cpzbm::runDebugMode(argc, argv, reinterpret_cast<const volatile int*>(&g_stop));
+    const int dbg = cpzbm::runDebugMode(argc, argv, &g_stop);
     if (dbg >= 0) return dbg;
 
     spdlog::info("cpz-baby-monitor {} starting", CPZBM_VERSION);
     lv_init();
     if (!cap_gps::initLvglHal(320, 170)) return 1;
+    cpzbm::fonts::init();
 
     cpzbm::Controller ctl;
     ctl.start();  // radio failure is shown in the UI
@@ -75,6 +77,7 @@ int main(int argc, char** argv)
     spdlog::info("shutting down");
     ctl.stop();
     keypad.close();
+    cpzbm::fonts::deinit();
     cap_gps::shutdownLvglHal();
     alarm(0);
     return 0;

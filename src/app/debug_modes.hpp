@@ -7,9 +7,11 @@
 //   --codec-loop [s]   mic -> codec2 -> speaker on the same device
 //   --bench-codec      codec2 encode+decode CPU cost
 
+#include <csignal>
+
 namespace cpzbm {
 
 // Returns -1 if argv is not a debug mode, else the process exit code.
-int runDebugMode(int argc, char** argv, const volatile int* stop_flag);
+int runDebugMode(int argc, char** argv, const volatile std::sig_atomic_t* stop_flag);
 
 }  // namespace cpzbm

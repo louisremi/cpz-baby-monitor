@@ -1,5 +1,7 @@
 #include "ui/ui.hpp"
 
+#include "ui/fonts.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -9,8 +11,11 @@ namespace cpzbm {
 namespace {
 
 constexpr int kW = 320, kH = 170;
-constexpr int kNavY = 145;              // top of the function bar
-constexpr int kNavX[5] = {49, 105, 161, 217, 273};
+// Function bar: label centres per the CardputerZero key guideline (x above
+// number keys 4-8, y=153), with a short tick pointing down at each key.
+constexpr int kNavCenterY = 153;
+constexpr int kNavX[5]    = {49, 105, 161, 217, 273};
+constexpr int kNavLabelW  = 56;
 constexpr int kWaveY = 22, kWaveH = 118;  // waveform canvas area
 
 const lv_color_t kBg     = lv_color_hex(0x101418);
@@ -35,6 +40,8 @@ std::string ago(uint64_t now, uint64_t then)
     return buf;
 }
 
+Screen screenFor(Role r) { return r == Role::Baby ? Screen::Baby : r == Role::Parent ? Screen::Parent : Screen::Home; }
+
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
 {
     return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
@@ -47,24 +54,18 @@ Ui::Ui(Controller* ctl) : ctl_(ctl) {}
 void Ui::start()
 {
     if (!ctl_->status().radio_ok) {
-        go(Screen::RadioError);
+        showScreen(Screen::RadioError);
         return;
     }
     // Resume the stored role straight away: a baby monitor that was powered
     // off and on again should go back to monitoring without user input.
     const auto& link = ctl_->link();
-    if (link.paired() && link.pairing().role == Role::Baby) {
-        ctl_->enterRole(Role::Baby);
-        go(Screen::Baby);
-    } else if (link.paired() && link.pairing().role == Role::Parent) {
-        ctl_->enterRole(Role::Parent);
-        go(Screen::Parent);
-    } else {
-        go(Screen::Home);
-    }
+    const Role role  = link.paired() ? link.pairing().role : Role::None;
+    ctl_->enterRole(role);
+    showScreen(screenFor(role));
 }
 
-void Ui::go(Screen s)
+void Ui::showScreen(Screen s)
 {
     screen_ = s;
     build();
@@ -94,11 +95,11 @@ void Ui::buildNavBar(const char* labels[5])
         lv_obj_set_pos(tick, kNavX[i] - 1, kH - 6);
         lv_obj_t* l = lv_label_create(root_);
         lv_label_set_text(l, labels[i]);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(l, fonts::get(fonts::Size::Small), 0);
         lv_obj_set_style_text_color(l, kFg, 0);
-        lv_obj_set_width(l, 56);
+        lv_obj_set_width(l, kNavLabelW);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(l, kNavX[i] - 28, kNavY + 4);
+        lv_obj_set_pos(l, kNavX[i] - kNavLabelW / 2, kNavCenterY - lv_font_get_line_height(fonts::get(fonts::Size::Small)) / 2);
     }
 }
 
@@ -117,16 +118,16 @@ void Ui::build()
         canvas_buf_ = nullptr;
     }
 
-    l_title_  = label(root_, "", &lv_font_montserrat_14, kAccent, 6, 3);
-    l_status_ = label(root_, "", &lv_font_montserrat_12, kDim, 120, 4);
+    l_title_  = label(root_, "", fonts::get(fonts::Size::Body), kAccent, 6, 3);
+    l_status_ = label(root_, "", fonts::get(fonts::Size::Small), kDim, 120, 4);
     lv_obj_set_width(l_status_, 194);
     lv_obj_set_style_text_align(l_status_, LV_TEXT_ALIGN_RIGHT, 0);
 
     switch (screen_) {
         case Screen::RadioError: {
             lv_label_set_text(l_title_, "BabyMon");
-            l_main_ = label(root_, "LoRa radio unavailable", &lv_font_montserrat_16, kBad, 10, 40);
-            l_aux_  = label(root_, "", &lv_font_montserrat_12, kFg, 10, 70);
+            l_main_ = label(root_, "LoRa radio unavailable", fonts::get(fonts::Size::Large), kBad, 10, 40);
+            l_aux_  = label(root_, "", fonts::get(fonts::Size::Small), kFg, 10, 70);
             lv_obj_set_width(l_aux_, 300);
             lv_label_set_long_mode(l_aux_, LV_LABEL_LONG_WRAP);
             const char* nav[5] = {"", "", "", "", "Quit"};
@@ -135,8 +136,8 @@ void Ui::build()
         }
         case Screen::Home: {
             lv_label_set_text(l_title_, "BabyMon");
-            l_main_ = label(root_, "", &lv_font_montserrat_16, kFg, 10, 34);
-            l_aux_  = label(root_, "", &lv_font_montserrat_12, kDim, 10, 62);
+            l_main_ = label(root_, "", fonts::get(fonts::Size::Large), kFg, 10, 34);
+            l_aux_  = label(root_, "", fonts::get(fonts::Size::Small), kDim, 10, 62);
             lv_obj_set_width(l_aux_, 300);
             lv_label_set_long_mode(l_aux_, LV_LABEL_LONG_WRAP);
             if (ctl_->link().paired()) {
@@ -150,12 +151,12 @@ void Ui::build()
         }
         case Screen::PairShow: {
             lv_label_set_text(l_title_, "Pair: show code");
-            label(root_, "Type this code on the other device:", &lv_font_montserrat_12, kDim, 10, 28);
-            l_main_ = label(root_, "", &lv_font_montserrat_32, kFg, 0, 52);
+            label(root_, "Type this code on the other device:", fonts::get(fonts::Size::Small), kDim, 10, 28);
+            l_main_ = label(root_, "", fonts::get(fonts::Size::Code), kFg, 0, 52);
             lv_obj_set_width(l_main_, kW);
             lv_obj_set_style_text_align(l_main_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_style_text_letter_space(l_main_, 6, 0);
-            l_aux_ = label(root_, "", &lv_font_montserrat_12, kDim, 10, 100);
+            l_aux_ = label(root_, "", fonts::get(fonts::Size::Small), kDim, 10, 100);
             lv_obj_set_width(l_aux_, 300);
             const char* nav[5] = {"", "", "", "", "Cancel"};
             buildNavBar(nav);
@@ -163,19 +164,19 @@ void Ui::build()
         }
         case Screen::PairEnter: {
             lv_label_set_text(l_title_, "Pair: enter code");
-            l_aux_  = label(root_, "", &lv_font_montserrat_12, kFg, 10, 26);
+            l_aux_  = label(root_, "", fonts::get(fonts::Size::Small), kFg, 10, 26);
             lv_obj_set_width(l_aux_, 300);
-            l_main_ = label(root_, "", &lv_font_montserrat_32, kFg, 0, 70);
+            l_main_ = label(root_, "", fonts::get(fonts::Size::Code), kFg, 0, 70);
             lv_obj_set_width(l_main_, kW);
             lv_obj_set_style_text_align(l_main_, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_style_text_letter_space(l_main_, 6, 0);
-            label(root_, "F/X: pick device   0-9: code   OK: pair   ESC: back", &lv_font_montserrat_10, kDim, 10,
-                  kNavY + 6);
+            label(root_, "F/X: device  0-9: code  OK: pair  ESC: back", fonts::get(fonts::Size::Small), kDim, 6,
+                  kNavCenterY - 7);
             break;
         }
         case Screen::Baby: {
             lv_label_set_text(l_title_, "Baby unit");
-            label(root_, "Mic level", &lv_font_montserrat_12, kDim, 10, 28);
+            label(root_, "Mic level", fonts::get(fonts::Size::Small), kDim, 10, 28);
             bar_ = lv_bar_create(root_);
             lv_obj_set_size(bar_, 300, 18);
             lv_obj_set_pos(bar_, 10, 46);
@@ -187,8 +188,8 @@ void Ui::build()
             lv_obj_set_size(vox_mark_, 2, 26);
             lv_obj_set_style_bg_color(vox_mark_, kWarn, 0);
             lv_obj_set_style_bg_opa(vox_mark_, LV_OPA_COVER, 0);
-            l_main_ = label(root_, "", &lv_font_montserrat_16, kFg, 10, 74);
-            l_aux_  = label(root_, "", &lv_font_montserrat_12, kDim, 10, 100);
+            l_main_ = label(root_, "", fonts::get(fonts::Size::Large), kFg, 10, 74);
+            l_aux_  = label(root_, "", fonts::get(fonts::Size::Small), kDim, 10, 100);
             lv_obj_set_width(l_aux_, 300);
             const char* nav[5] = {"VOX-", "VOX+", "Always", "", "Home"};
             buildNavBar(nav);
@@ -201,7 +202,7 @@ void Ui::build()
             lv_canvas_set_buffer(canvas_, canvas_buf_, kW, kWaveH, LV_COLOR_FORMAT_RGB565);
             lv_obj_set_pos(canvas_, 0, kWaveY);
             banner_ = lv_label_create(root_);
-            lv_obj_set_style_text_font(banner_, &lv_font_montserrat_18, 0);
+            lv_obj_set_style_text_font(banner_, fonts::get(fonts::Size::Banner), 0);
             lv_obj_set_style_text_color(banner_, lv_color_white(), 0);
             lv_obj_set_style_bg_color(banner_, kBad, 0);
             lv_obj_set_style_bg_opa(banner_, LV_OPA_COVER, 0);
@@ -216,8 +217,8 @@ void Ui::build()
         }
         case Screen::ConfirmUnpair: {
             lv_label_set_text(l_title_, "Unpair?");
-            l_main_ = label(root_, "Forget the paired device?", &lv_font_montserrat_16, kFg, 10, 40);
-            label(root_, "You will need to pair again with a new code.", &lv_font_montserrat_12, kDim, 10, 68);
+            l_main_ = label(root_, "Forget the paired device?", fonts::get(fonts::Size::Large), kFg, 10, 40);
+            label(root_, "You will need to pair again with a new code.", fonts::get(fonts::Size::Small), kDim, 10, 68);
             const char* nav[5] = {"Yes", "", "", "", "No"};
             buildNavBar(nav);
             break;
@@ -362,10 +363,10 @@ void Ui::refresh()
                 lv_obj_remove_flag(banner_, LV_OBJ_FLAG_HIDDEN);
             else
                 lv_obj_add_flag(banner_, LV_OBJ_FLAG_HIDDEN);
-            std::snprintf(buf, sizeof buf, "Parent%s%s", st.peer_gate ? "  - sound" : "",
+            std::snprintf(buf, sizeof buf, "Parent%s%s", st.peer_sound ? "  - sound" : "",
                           st.speaker_muted ? "  [muted]" : "");
             lv_label_set_text(l_title_, buf);
-            lv_obj_set_style_text_color(l_title_, st.peer_gate ? kBad : kAccent, 0);
+            lv_obj_set_style_text_color(l_title_, st.peer_sound ? kBad : kAccent, 0);
             break;
         }
         case Screen::ConfirmUnpair:
@@ -381,17 +382,17 @@ void Ui::handleLinkEvents()
             case LinkEvent::Kind::Paired:
                 typed_.clear();
                 ctl_->leaveRole();
-                go(Screen::Home);
+                showScreen(Screen::Home);
                 break;
             case LinkEvent::Kind::RoleChanged: {
                 const Role r = ctl_->link().pairing().role;
                 ctl_->enterRole(r);
-                go(r == Role::Baby ? Screen::Baby : r == Role::Parent ? Screen::Parent : Screen::Home);
+                showScreen(screenFor(r));
                 break;
             }
             case LinkEvent::Kind::Unpaired:
                 ctl_->leaveRole();
-                go(Screen::Home);
+                showScreen(Screen::Home);
                 break;
             case LinkEvent::Kind::PairFailed:
                 if (screen_ == Screen::PairEnter) typed_.clear();
@@ -424,31 +425,28 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
             if (esc || key == '8') quit_ = true;
             break;
         case Screen::Home:
-            if (link.paired()) {
-                if (key == '6') {
-                    ctl_->requestRegion(ctl_->status().region == Region::EU868 ? Region::US915 : Region::EU868, now_ms);
-                    refresh();
-                } else if (key == '4') {
+            if (key == '6') {
+                ctl_->toggleRegion(now_ms);  // same key, paired or not
+                refresh();
+            } else if (link.paired()) {
+                if (key == '4') {
                     link.setRole(Role::Baby, now_ms);  // emits RoleChanged -> screen switch
                 } else if (key == '5') {
                     link.setRole(Role::Parent, now_ms);
                 } else if (key == '8') {
-                    go(Screen::ConfirmUnpair);
+                    showScreen(Screen::ConfirmUnpair);
                 } else if (esc) {
                     quit_ = true;
                 }
             } else {
-                if (key == '6') {
-                    ctl_->requestRegion(ctl_->status().region == Region::EU868 ? Region::US915 : Region::EU868, now_ms);
-                    refresh();
-                } else if (key == '4') {
+                if (key == '4') {
                     link.startShowing(now_ms);
-                    go(Screen::PairShow);
+                    showScreen(Screen::PairShow);
                 } else if (key == '5') {
                     typed_.clear();
                     peer_index_ = 0;
                     link.startScanning(now_ms);
-                    go(Screen::PairEnter);
+                    showScreen(Screen::PairEnter);
                 } else if (esc || key == '8') {
                     quit_ = true;
                 }
@@ -457,14 +455,14 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
         case Screen::PairShow:
             if (esc || key == '8') {
                 link.cancelPairing();
-                go(Screen::Home);
+                showScreen(Screen::Home);
             }
             break;
         case Screen::PairEnter: {
             const bool busy = link.phase() == PairPhase::Requesting || link.phase() == PairPhase::Confirming;
             if (esc) {
                 link.cancelPairing();
-                go(Screen::Home);
+                showScreen(Screen::Home);
             } else if (busy) {
                 break;
             } else if (key >= '0' && key <= '9' && typed_.size() < 6) {
@@ -491,7 +489,7 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
             else if (key == '6') ctl_->toggleAlwaysStream();
             else if (esc || key == '8') {
                 ctl_->leaveRole();
-                go(Screen::Home);
+                showScreen(Screen::Home);
             }
             refresh();
             break;
@@ -499,14 +497,14 @@ bool Ui::onKey(uint32_t key, bool pressed, uint64_t now_ms)
             if (key == '7') ctl_->toggleMute();
             else if (esc || key == '8') {
                 ctl_->leaveRole();
-                go(Screen::Home);
+                showScreen(Screen::Home);
             }
             break;
         case Screen::ConfirmUnpair:
             if (key == '4') {
                 link.unpair();  // emits Unpaired -> Home
             } else if (esc || key == '8') {
-                go(Screen::Home);
+                showScreen(Screen::Home);
             }
             break;
     }

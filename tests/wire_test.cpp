@@ -51,18 +51,22 @@ int main()
     hb.resize(kSecHdrLen + kAeadTagLen - 1);
     CHECK(!decodeSecHeader(hb));
 
-    Audio a{513, 2, 8, Bytes(64, 0x5A)};
+    Audio a{7, 513, cpzbm::audio::Mode::M1600, 8, Bytes(64, 0x5A)};
     auto a2 = decodeAudio(encode(a));
-    CHECK(a2 && a2->seq == 513 && a2->mode == 2 && a2->nframes == 8 && a2->frames.size() == 64);
-    Audio bad{1, 2, 3, Bytes(64, 0)};  // 64 % 3 != 0
+    CHECK(a2 && a2->stream == 7 && a2->seq == 513 && a2->mode == cpzbm::audio::Mode::M1600 && a2->nframes == 8 &&
+          a2->frames.size() == 64);
+    Audio bad{0, 1, cpzbm::audio::Mode::M1600, 3, Bytes(64, 0)};  // 64 % 3 != 0
     CHECK(!decodeAudio(encode(bad)));
+    auto badmode = encode(a);
+    badmode[3]   = 99;  // unknown codec mode
+    CHECK(!decodeAudio(badmode));
 
-    Heartbeat hbm{-42, 80, 1};
+    Heartbeat hbm{-42, 80, true};
     auto hbm2 = decodeHeartbeat(encode(hbm));
-    CHECK(hbm2 && hbm2->level_dbfs == -42 && hbm2->battery == 80 && hbm2->flags == 1);
+    CHECK(hbm2 && hbm2->level_dbfs == -42 && hbm2->battery == 80 && hbm2->always_stream);
 
     // Largest audio packet fits a LoRa frame.
-    CHECK(kSecHdrLen + 4 + 8 * 8 + kAeadTagLen <= kMaxPacket);
+    CHECK(kSecHdrLen + 5 + 8 * 8 + kAeadTagLen <= kMaxPacket);
     std::puts("wire_test OK");
     return 0;
 }
